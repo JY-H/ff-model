@@ -134,6 +134,25 @@ CREATE TABLE IF NOT EXISTS pro_games (
     PRIMARY KEY (season, game_id)
 );
 
+CREATE TABLE IF NOT EXISTS game_context (
+    snapshot_id INTEGER NOT NULL,
+    game_id INTEGER NOT NULL,       -- ESPN pro game id (pro_games.game_id)
+    week INTEGER,
+    kickoff_utc TEXT,
+    home TEXT, away TEXT,           -- nflverse abbreviations
+    stadium TEXT,
+    roof TEXT,                      -- outdoors | closed | dome (model vocabulary)
+    temp_f REAL, wind_mph REAL, gust_mph REAL, precip_in REAL, precip_prob REAL,  -- forecast, outdoors only
+    PRIMARY KEY (snapshot_id, game_id)
+);
+
+CREATE TABLE IF NOT EXISTS injury_reports (
+    snapshot_id INTEGER NOT NULL,
+    season INTEGER, week INTEGER, team TEXT, gsis_id TEXT, position TEXT, full_name TEXT,
+    report_status TEXT, practice_status TEXT, injury TEXT
+);
+CREATE INDEX IF NOT EXISTS injury_reports_snapshot ON injury_reports(snapshot_id);
+
 CREATE TABLE IF NOT EXISTS scheduled_wakes (
     wake_local TEXT PRIMARY KEY,
     slot_key TEXT,

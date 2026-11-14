@@ -56,6 +56,7 @@ Saves the data that disappears if it isn't captured at the time. launchd runs `t
 - all 16 rosters and lineups, plus all matchups (with ESPN's own win probability)
 - game lines (spreads and totals) from The Odds API
 - player props, for games that lock before the next slot
+- **pre-game context:** a kickoff-window weather forecast for every upcoming outdoor game (Open-Meteo), stadium and roof for every game (`game_context`), and that week's nflverse injury report with practice participation, OL and DBs included (`injury_reports`)
 - league scoring settings (on Tuesdays)
 
 **Slots (ET)**, generated from the NFL schedule in `archive/slots.py`:
@@ -76,6 +77,12 @@ Saves the data that disappears if it isn't captured at the time. launchd runs `t
 - Player props cost 1 credit per market per game. Each game is pulled once, at the last slot before it locks.
 - Prop markets in priority order: anytime TD, receptions, receiving yards, rushing yards, passing yards. A planner drops markets from the end of that list if the rest of the month can't be covered.
 - No calls below 40 credits remaining. The quota is assumed to reset on the 1st.
+
+**Live model inputs:** `model/live.py` `build_inputs(snapshot_id)` assembles each player's inputs using only what was archived at or before that snapshot. That covers projection and stat line, ESPN injury designation, opponent and kickoff, roof and forecast, spread (median across books, this week's game only), nflverse practice status, and games back after an absence. Live decisions and backtests share this code, so neither can see past the lock.
+
+- Injury designation comes from ESPN; nflverse lags on designations but has practice participation.
+- Retractable roofs are treated as closed. The stadium table is `sources/stadiums.py`; nflverse's roof labels are blank or wrong for some venues.
+- A test checks that every remaining Thursday, Saturday, holiday and international slot finds its games with stadiums.
 
 **Waking the Mac:** each tick schedules `pmset` wakes 3 minutes before upcoming slots. This needs `deploy/ff-archiver.sudoers` installed in `/etc/sudoers.d` (it is).
 

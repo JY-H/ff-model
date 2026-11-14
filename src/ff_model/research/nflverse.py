@@ -47,9 +47,12 @@ def _write(df: pl.DataFrame, path: Path) -> None:
     tmp.replace(path)
 
 
-def pull(seasons: list[int] | None = None, refresh_current: bool = True, force: bool = False) -> None:
+def pull(seasons: list[int] | None = None, refresh_current: bool = True, force: bool = False,
+         datasets: list[str] | None = None) -> None:
     seasons = seasons or list(range(FIRST_SEASON, SEASON + 1))
     for name, loader in SEASONAL.items():
+        if datasets is not None and name not in datasets:
+            continue
         for s in seasons:
             path = NFLVERSE_DIR / name / f"{s}.parquet"
             stale = force or not path.exists() or (s == SEASON and refresh_current)
@@ -63,6 +66,8 @@ def pull(seasons: list[int] | None = None, refresh_current: bool = True, force: 
             _write(df, path)
             log.info("%s %d: %d rows", name, s, df.height)
     for name, loader in STATIC.items():
+        if datasets is not None and name not in datasets:
+            continue
         df = loader()
         _write(df, NFLVERSE_DIR / f"{name}.parquet")
         log.info("%s: %d rows", name, df.height)

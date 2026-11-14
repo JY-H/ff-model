@@ -16,7 +16,8 @@ def _weekly(stats, source: int, week: int):
 
 
 def parse_snapshot(con, snapshot_id: int, week: int) -> None:
-    for t in ("player_snapshots", "lineups", "matchups", "odds_lines", "prop_lines"):
+    for t in ("player_snapshots", "lineups", "matchups", "odds_lines", "prop_lines",
+              "game_context", "injury_reports"):
         con.execute(f"DELETE FROM {t} WHERE snapshot_id=?", (snapshot_id,))
     rows = con.execute("SELECT * FROM raw_responses WHERE snapshot_id=? AND status_code=200",
                        (snapshot_id,)).fetchall()
@@ -31,6 +32,10 @@ def parse_snapshot(con, snapshot_id: int, week: int) -> None:
             _odds(con, snapshot_id, body)
         elif row["kind"] == "props":
             _props(con, snapshot_id, body)
+        elif row["kind"] == "weather":
+            _game_context(con, snapshot_id, json.loads(row["params_json"]), body)
+        elif row["kind"] == "nflverse_injuries":
+            _injuries(con, snapshot_id, body)
     con.commit()
 
 
@@ -87,6 +92,32 @@ def _props(con, sid, ev):
                             (sid, ev["id"], ev.get("commence_time"), ev.get("home_team"),
                              ev.get("away_team"), bk["key"], mk.get("last_update"), mk["key"],
                              oc.get("description"), oc["name"], oc.get("price"), oc.get("point")))
+
+
+def _game_context(con, sid, params, body):
+    """One row per upcoming game (all roof types); forecast columns for outdoor games."""
+    from datetime import datetime
+
+    from ..sources import weather
+    games = params["games"]
+    outdoor = [g for g in games if g["roof"] == "outdoors"]
+    for g in outdoor:
+        g["kickoff"] = datetime.fromisoformat(g["kickoff_utc"])
+    fc = {w["game_id"]: w for w in (weather.summarize(body, outdoor) if body and outdoor else [])}
+    for g in games:
+        w = fc.get(g["game_id"], {})
+        con.execute("INSERT OR REPLACE INTO game_context VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (sid, g["game_id"], g["week"], g["kickoff_utc"], g["home"], g["away"], g["stadium"],
+                     g["roof"], w.get("temp_f"), w.get("wind_mph"), w.get("gust_mph"),
+                     w.get("precip_in"), w.get("precip_prob")))
+
+
+def _injuries(con, sid, rows):
+    for r in rows or []:
+        con.execute("INSERT INTO injury_reports VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (sid, r.get("season"), r.get("week"), r.get("team"), r.get("gsis_id"), r.get("position"),
+                     r.get("full_name"), r.get("report_status"), r.get("practice_status"),
+                     r.get("report_primary_injury")))
 
 
 def store_pro_games(con, season: int, body) -> int:

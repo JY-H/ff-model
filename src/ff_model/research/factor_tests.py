@@ -114,7 +114,7 @@ def factor_frame(seasons=SEASONS, depth: float = 1.0, with_u: bool = True) -> pl
     df = (df.join(inj, on=["season", "week", "gsis_id"], how="left")
             .with_columns(pl.col("report_status").fill_null("none")))
 
-    df = _add_return_from_absence(df)
+    df = _add_return_from_absence(df, seasons)
     df = _add_mismatch(df)
 
     # --- where the actual landed in the player's predicted range ---
@@ -124,11 +124,11 @@ def factor_frame(seasons=SEASONS, depth: float = 1.0, with_u: bool = True) -> pl
     return df
 
 
-def _add_return_from_absence(df: pl.DataFrame) -> pl.DataFrame:
+def _add_return_from_absence(df: pl.DataFrame, seasons=SEASONS) -> pl.DataFrame:
     """games_missed: consecutive games missed right before this one (roster status INA/RES, byes skipped).
     games_back: 1 = first game back after missing 2+ games, 2 = second, ...; 0 otherwise.
     from_ir: the absence included a week on reserve (IR/PUP)."""
-    r = (load("rosters_weekly", SEASONS).filter(pl.col("game_type") == "REG")
+    r = (load("rosters_weekly", list(seasons)).filter(pl.col("game_type") == "REG")
          .select(pl.col("season").cast(pl.Int64), pl.col("week").cast(pl.Int64), "gsis_id", "status")
          .drop_nulls("gsis_id").unique(["season", "week", "gsis_id"]).sort("gsis_id", "season", "week"))
     rows = []

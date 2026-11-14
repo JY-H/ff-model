@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from ..config import ET, LOG_DIR, SEASON
 from ..db import connect, iso, save_raw, utcnow
 from ..sources import espn, odds
+from .context import archive_context
 from .parse import parse_snapshot, store_pro_games
 from .slots import Slot, all_slots
 from .wakes import schedule_wakes
@@ -69,6 +70,7 @@ def snapshot(con, week: int, slot_key: str | None = None, with_odds: bool = Fals
         except Exception as e:  # keep going: a partial snapshot beats none
             log.error("fetch %s failed: %s", kind, e)
             errors.append(f"{kind}: {e}")
+    errors += archive_context(con, sid, week)  # free: nflverse + Open-Meteo
     if with_odds:
         try:
             res = odds.fetch_game_lines(con, sid)
