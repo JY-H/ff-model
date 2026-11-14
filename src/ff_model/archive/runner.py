@@ -70,6 +70,8 @@ def snapshot(con, week: int, slot_key: str | None = None, with_odds: bool = Fals
         except Exception as e:  # keep going: a partial snapshot beats none
             log.error("fetch %s failed: %s", kind, e)
             errors.append(f"{kind}: {e}")
+    if prev_week:  # Tuesday: last week's and this week's transactions (trades, claims, adds/drops)
+        errors += fetch_transactions(con, [w for w in (week - 1, week) if w >= 1], sid)
     errors += archive_context(con, sid, week)  # free: nflverse + Open-Meteo
     if with_odds:
         try:
@@ -117,6 +119,20 @@ def backfill_finals(con, week: int) -> int | None:
     con.execute("UPDATE snapshots SET finished_at=?, status='ok' WHERE id=?", (iso(utcnow()), sid))
     con.commit()
     return sid
+
+
+def fetch_transactions(con, weeks, sid: int | None = None) -> list[str]:
+    """Archive ESPN's transaction log (one request per scoring period). Returns errors."""
+    errors = []
+    for w in weeks:
+        try:
+            for kind, url, params, status, body in espn.fetch("transactions", w):
+                save_raw(con, sid, "espn", kind, url, params, status, body)
+        except Exception as e:
+            log.error("transactions week %d failed: %s", w, e)
+            errors.append(f"transactions w{w}: {e}")
+            break  # don't keep hammering a failing endpoint
+    return errors
 
 
 def _done(con, key: str) -> bool:

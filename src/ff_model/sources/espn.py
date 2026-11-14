@@ -42,8 +42,8 @@ def _get(url: str, params: dict, filt: dict | None = None):
         else:
             if r.status_code == 200:
                 return r.status_code, r.json()
-            if r.status_code in (401, 403, 404):
-                raise RuntimeError(f"ESPN returned HTTP {r.status_code} (cookies expired?)")
+            if r.status_code in (401, 403, 404, 429):  # 429: rate-limited; stop rather than retry
+                raise RuntimeError(f"ESPN returned HTTP {r.status_code}" + (" (cookies expired?)" if r.status_code != 429 else ""))
             log.warning("ESPN HTTP %d, attempt %d", r.status_code, attempt + 1)
         time.sleep(5 * 2**attempt)
     raise RuntimeError("ESPN request failed after retries")
@@ -80,5 +80,9 @@ def fetch(kind: str, week: int):
             if n < PAGE_SIZE:
                 break
             offset += PAGE_SIZE
+    elif kind == "transactions":
+        # Every roster transaction processed in one scoring period: trades, waiver claims, adds/drops.
+        params = {"view": "mTransactions2", "scoringPeriodId": week}
+        yield (kind, ESPN_LEAGUE_URL, params, *_get(ESPN_LEAGUE_URL, params))
     else:
         raise ValueError(kind)

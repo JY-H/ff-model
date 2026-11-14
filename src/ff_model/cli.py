@@ -42,6 +42,8 @@ def main(argv=None) -> None:
     sub.add_parser("install-launchd", help="write the LaunchAgent plist")
     rp = sub.add_parser("reparse", help="rebuild derived tables from raw responses")
     rp.add_argument("snapshot_ids", type=int, nargs="*")
+    bt = sub.add_parser("transactions", help="archive ESPN's transaction log (trades etc.) for weeks")
+    bt.add_argument("weeks", type=int, nargs="+")
     bf = sub.add_parser("backfill-finals", help="archive final lineups/points for past weeks")
     bf.add_argument("weeks", type=int, nargs="+")
     eh = sub.add_parser("espn-history", help="backfill ESPN weekly projections 2019-2025")
@@ -131,6 +133,9 @@ def main(argv=None) -> None:
         print(f"snapshot {sid}: {r['status']}" + (f" ({r['error']})" if r["error"] else ""))
     elif args.cmd == "status":
         print(runner.status_report(con))
+    elif args.cmd == "transactions":
+        errs = runner.fetch_transactions(con, args.weeks)
+        print("\n".join(errs) or f"archived transactions for weeks {args.weeks}")
     elif args.cmd == "backfill-finals":
         for w in args.weeks:
             sid = runner.backfill_finals(con, w)

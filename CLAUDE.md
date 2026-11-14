@@ -54,6 +54,7 @@ Saves the data that disappears if it isn't captured at the time. launchd runs `t
 
 - ESPN projections and injury status for every player in the pool
 - all 16 rosters and lineups, plus all matchups (with ESPN's own win probability)
+- the league's transaction log (trades, waiver claims, adds/drops), on Tuesdays for last week and this week
 - game lines (spreads and totals) from The Odds API
 - player props, for games that lock before the next slot
 - **pre-game context:** a kickoff-window weather forecast for every upcoming outdoor game (Open-Meteo), stadium and roof for every game (`game_context`), and that week's nflverse injury report with practice participation, OL and DBs included (`injury_reports`)
@@ -136,7 +137,8 @@ Saves the data that disappears if it isn't captured at the time. launchd runs `t
   - a recommendation card with swaps against the current lineup, and urgent flags for starters who can't score
   - a head-to-head with model-vs-ESPN tinting and Stack / Hedge / Double-risk tags (from the estimated correlations)
   - a player panel with a plain-English summary, distribution, what moved the expectation, evidence, stat line, props, and what-if controls
-  - tabs: Weekly Matchup, Weekly Context (grouped by game), Weekly Review, Season Overview (replay record plus each week's margin split into projection, role, luck and K/D/ST)
+  - tabs: Weekly Matchup, Weekly Context (grouped by game), Weekly Review, Season Overview (replay record plus each week's margin split into projection, role, luck and K/D/ST), Trade Analyzer
+  - the Trade Analyzer (`model/trades.py`): each completed trade from the transaction log, what each side scored since, and your highest-projection lineup each week with vs. without the trade, scored on actual results. Assumes you'd have kept the outgoing players; a trade's window ends when its incoming players are traded on.
   - the Weekly Review tab, for finished weeks (`model/review.py`): each result split into ESPN's projection + **role** (what the usage he got is usually worth, from nflverse expected points, minus ESPN) + **luck** (actual minus that), with rule-based guesses for why usage differed (snap share, next week's injury report, teammates out or leaving early, final score vs. the line, team volume, wind). Information only.
 - Any week (live, or replay of 2026 W1–9 with final results) and any team can be shown.
 
@@ -158,7 +160,7 @@ src/ff_model/
   research/  nflverse.py  espn_history.py  scoring.py  projection_errors.py
              factor_tests.py  line_injuries.py  vacated.py  opportunity.py
   model/     marginals.py  correlation.py  simulate.py  optimize.py  live.py  report.py
-             backtest.py  backtest_synth.py  evaluate.py  rankings.py  review.py
+             backtest.py  backtest_synth.py  evaluate.py  rankings.py  review.py  trades.py
   web/       server.py  static/index.html  static/rankings.html
 ```
 
@@ -170,6 +172,7 @@ src/ff_model/
 | `snapshot [--odds] [--prev-week]` | take a manual snapshot (odds cost credits) |
 | `tick` | what launchd runs every 5 min |
 | `reparse` | rebuild the derived tables from saved raw responses |
+| `transactions WEEKS…` | archive ESPN's transaction log for those weeks (one request each) |
 | `backfill-finals WEEKS…` | save final lineups and points for past weeks |
 | `nflverse` | download or refresh nflverse history (run by hand on Tuesdays) |
 | `espn-history [--seasons] [--weeks]` | download ESPN weekly projections (2019–2025; completed weeks of 2026) |

@@ -57,6 +57,9 @@ button.primary { background: var(--me); color: #fff; border-color: var(--me); }
 .tile .label { color: var(--text-muted); font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; } .tile .value { font-size: 30px; font-weight: 700; letter-spacing: -.01em; margin-top: 4px; }
 .tile .sub { color: var(--text-muted); font-size: 12px; }
 tr.hl td { background: var(--hl); }
+.tradecard { margin-top: 14px; } .tradecard .thead { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.tradecard .pill { padding: 2px 8px; border-radius: 6px; font-weight: 650; font-size: 13px; white-space: nowrap; }
+.tside { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px; }
 .story .srow { display: grid; grid-template-columns: 92px 1fr; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--grid); line-height: 1.5; }
 .story .srow:last-child { border-bottom: none; }
 .story .srow > b { font-size: 13px; } .story .pill { display: inline-block; padding: 0 5px; border-radius: 5px; font-weight: 600; font-size: 12px; }
@@ -144,7 +147,7 @@ body { overflow-x: hidden; } .card, #main { min-width: 0; }
     <button id="fresh" title="Fetch ESPN projections, injuries and weather now (no odds credits)">Fresh snapshot</button>
   </div>
   <div class="tabs" id="tabs">
-    <button data-tab="matchup" class="on">Weekly Matchup</button><button data-tab="context">Weekly Context</button><button data-tab="review">Weekly Review</button><button data-tab="season">Season Overview</button>
+    <button data-tab="matchup" class="on">Weekly Matchup</button><button data-tab="context">Weekly Context</button><button data-tab="review">Weekly Review</button><button data-tab="season">Season Overview</button><button data-tab="trades">Trade Analyzer</button>
   </div>
   </header>
   <div id="main"><div class="loading">Loading…</div></div>
@@ -180,7 +183,7 @@ const modelTd = p => p.locked || p.unavailable ? `<td class="num">–</td>`
   : `<td class="num" title="${esc(whyTitle(p))}" style="${tint(p.model_mean - p.proj)}">${pts(p.model_mean)} ${signed(p.model_mean - p.proj)}</td>`;
 const effectTd = d => `<td class="num" style="${tint(d)}">${Math.abs(d) < 0.1 ? "±0" : sgn(d)}</td>`;
 
-const TAB_NAMES = {matchup: "Weekly Matchup", context: "Weekly Context", review: "Weekly Review", season: "Season Overview"};
+const TAB_NAMES = {matchup: "Weekly Matchup", context: "Weekly Context", review: "Weekly Review", season: "Season Overview", trades: "Trade Analyzer"};
 function setHeader(sub) { $("#title").textContent = TAB_NAMES[S.tab]; $("#subtitle").innerHTML = sub;
   document.title = `${TAB_NAMES[S.tab]} · FFModel`; }
 const S = {weeks: [], teams: [], me: null, week: null, team: null, snapshot: null, tab: "matchup", report: null,
@@ -212,8 +215,9 @@ function syncControls() {
   if (live) $("#snap").innerHTML = wk.snapshots.map(s => `<option value="${s.id}">#${s.id} · ${esc(s.slot_key ? s.slot_key.split("-").pop() : "manual")} · ${when(s.started_at)}</option>`).join("");
   if (S.snapshot) $("#snap").value = S.snapshot;
   document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === S.tab));
-  $("#week").parentElement.style.display = S.tab === "season" ? "none" : "";  // the season view covers every week
-  if (S.tab === "season") { $("#snapwrap").style.display = "none"; $("#fresh").style.display = "none"; }
+  const allWeeks = S.tab === "season" || S.tab === "trades";  // these views cover every week
+  $("#week").parentElement.style.display = allWeeks ? "none" : "";
+  if (allWeeks) { $("#snapwrap").style.display = "none"; $("#fresh").style.display = "none"; }
 }
 $("#week").onchange = e => { S.week = +e.target.value; S.snapshot = null; resetOverrides(); syncControls(); route(); };
 $("#team").onchange = e => { S.team = +e.target.value; resetOverrides(); route(); };
@@ -242,6 +246,9 @@ async function route() {
       const [c, rep] = await Promise.all([getJSON("/api/context?" + qs()), getJSON("/api/report?" + qs())]);
       S.report = rep;
       renderContext(c, rep);
+    } else if (S.tab === "trades") {
+      main.innerHTML = `<div class="loading">Replaying each trade week by week…</div>`;
+      renderTrades(await getJSON("/api/trades?" + qs()));
     } else if (S.tab === "review") {
       main.innerHTML = `<div class="loading">Splitting each result into role and luck…</div>`;
       renderReview(await getJSON("/api/review?" + qs()));
@@ -854,6 +861,55 @@ function renderReview(d) {
       ${leagueList("Used less than ESPN expected", "Projected 8+, role below the projection, with likely reasons", r.league.role_down, "role")}
     </div>`;
   document.querySelectorAll("[data-rev]").forEach(tr => tr.onclick = () => { S.revOpen = S.revOpen === tr.dataset.rev ? null : tr.dataset.rev; renderReview(S.reviewData); });
+}
+// ------------------------------------------------------------------ trade analyzer
+// Each completed trade: who moved, what each side scored since, and your highest-projection lineup
+// with vs without the trade (scored on actual results), so lineup choices don't muddy the comparison.
+function tradeSide(title, ps, mine, nowWeek) {
+  if (!ps.length) return "";
+  return `<div><div class="tside">${title}</div><table class="small">
+    <tr><th>Player</th><th class="num" title="${mine ? "Points while on your roster" : "Points over the same weeks, wherever he was"}">Pts</th><th class="num" title="${mine ? "Points in your starting lineup (weeks started)" : "Points as a starter for his new team (weeks started)"}">As starter</th>
+      ${nowWeek ? `<th class="num" title="ESPN projection for week ${nowWeek}">W${nowWeek} ESPN</th>` : ""}</tr>
+    ${ps.map(p => `<tr><td><b>${esc(p.name)}</b> <span class="muted">${esc(p.pos || "")}</span>${!mine && p.now_with ? `<div class="muted">now: ${esc(p.now_with)}</div>` : ""}
+      ${p.weeks.some(w => w.no_game) ? `<div class="muted">didn't play in W${p.weeks.filter(w => w.no_game).map(w => w.week).join(", W")}</div>` : ""}</td>
+      <td class="num"><b>${pts(p.total)}</b></td><td class="num">${pts(p.started_pts)} <span class="muted">(${p.started_weeks})</span></td>
+      ${nowWeek ? `<td class="num">${p.proj_now ? pts(p.proj_now) : "–"}</td>` : ""}</tr>`).join("")}
+  </table></div>`;
+}
+function tradeCard(t, nowWeek) {
+  const span = t.in_effect_from == null ? "not in effect for any finished week yet"
+    : t.in_effect_from === t.in_effect_to ? `Week ${t.in_effect_from}` : `Weeks ${t.in_effect_from}–${t.in_effect_to}`;
+  const n = t.net_lineup, flips = t.weekly.filter(w => w.won_with !== w.won_undone);
+  const verdict = t.in_effect_from == null ? "No finished weeks yet."
+    : `${Math.abs(n) < 2 ? "About even for your lineup" : n > 0 ? `Your lineup scored <b>${pts(n)} more</b>` : `Your lineup scored <b>${pts(-n)} less</b>`} with the trade (${span})`
+      + (flips.length ? `, and it <b>${flips.map(w => `${w.won_with ? "won" : "lost"} you Week ${w.week}`).join(", ")}</b>.` : ", without changing any result.");
+  return `<div class="card tradecard"><div class="thead"><h3 style="margin:0">Week ${t.week} · with ${esc(t.partner)}</h3>
+      <span class="pill" style="${tint(n, 15)}">${Math.abs(n) < 0.05 ? "±0" : sgn(n)} lineup pts</span></div>
+    <p style="margin:6px 0 10px">${verdict}${t.ended_by_trade_week ? ` <span class="muted">Window ends when you traded ${t.got.length > 1 ? "them" : "him"} on in Week ${t.ended_by_trade_week}.</span>` : ""}</p>
+    <div class="grid2" style="margin-top:0">${tradeSide("You got", t.got, true, nowWeek)}${tradeSide("You gave", t.gave, false, nowWeek)}</div>
+    ${t.dropped.length ? `<div style="margin-top:8px">${tradeSide("Also dropped to make room", t.dropped, false, nowWeek)}</div>` : ""}
+    ${t.weekly.length ? `<details style="margin-top:10px"><summary class="small secondary">Week by week</summary><table class="small" style="margin-top:6px">
+      <tr><th>Week</th><th>Opponent</th><th class="num" title="Your highest-projection lineup, scored on actual results">With trade</th><th class="num" title="Same, with the trade undone">Undone</th><th class="num">Diff</th><th class="num">Opp</th><th>Result</th><th>Who started</th></tr>
+      ${t.weekly.map(w => `<tr><td>${w.week}</td><td>${esc(w.opponent)}</td><td class="num">${pts(w.with_trade)}</td><td class="num">${pts(w.undone)}</td>${luckTd(w.diff)}<td class="num">${pts(w.opp_points)}</td>
+        <td>${w.won_with === w.won_undone ? `<span class="muted">${w.won_with ? "W" : "L"} either way</span>` : `<b>${w.won_with ? "W" : "L"}</b> (undone: ${w.won_undone ? "W" : "L"})`}</td>
+        <td class="muted">${[...w.got_started.map(x => esc(x)), ...w.gave_would_start.map(x => `<s>${esc(x)}</s>`)].join(" · ") || "neither side"}</td></tr>`).join("")}
+    </table><p class="small muted" style="margin:4px 0 0">Who started: incoming players in your best lineup; <s>struck</s> = outgoing players who'd have started had you kept them.</p></details>` : ""}
+  </div>`;
+}
+function renderTrades(d) {
+  const ts = d.trades, tot = d.totals;
+  setHeader(`${esc(d.team.name)} · ${ts.length} trade${ts.length === 1 ? "" : "s"} this season`);
+  const got = ts.reduce((s, t) => s + t.got_points, 0), gave = ts.reduce((s, t) => s + t.gave_points, 0);
+  $("#main").innerHTML = `
+    <p class="intro">Every completed trade from ESPN's transaction log. <b>Lineup pts</b> compares your highest-projection lineup each week with the trade and with it undone (incoming players out, outgoing and dropped players back), both scored on what actually happened. That isolates the trade from your start/sit calls. It assumes you'd have kept the outgoing players and made every other move the same; a trade's window ends when you trade its incoming players on, and the later trade takes over. Finished weeks only (W${d.weeks[0]}–W${d.weeks[d.weeks.length - 1]}).</p>
+    ${ts.length ? `<div class="tiles">
+      <div class="card tile"><div class="label">Trades</div><div class="value">${ts.length}</div></div>
+      <div class="card tile"><div class="label">Lineup points from trades</div><div class="value">${sgn(tot.net_lineup)}</div><div class="sub">best lineup with vs without each trade</div></div>
+      <div class="card tile"><div class="label">Results changed</div><div class="value">${tot.wins_gained} won · ${tot.wins_lost} lost</div><div class="sub">weeks the trade flipped the result</div></div>
+      <div class="card tile"><div class="label">Raw points: got vs gave</div><div class="value">${pts(got, 0)} / ${pts(gave, 0)}</div><div class="sub">wherever the players were, same weeks</div></div>
+    </div>
+    <h2>Trades, newest first</h2>
+    ${ts.slice().reverse().map(t => tradeCard(t, d.now_week)).join("")}` : `<div class="card"><p class="muted" style="margin:0">No completed trades in the archived transaction log for this team.</p></div>`}`;
 }
 init().catch(e => $("#main").innerHTML = `<div class="loading err">${esc(e.message)}</div>`);
 </script>
