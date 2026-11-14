@@ -19,7 +19,7 @@ from scipy.stats import norm
 
 from ..config import DATA_DIR
 from . import correlation as C
-from .marginals import Marginals, cdf
+from .marginals import Marginals, anchor, cdf
 from .optimize import BENCH, decide
 
 log = logging.getLogger("ff_model.backtest_synth")
@@ -37,7 +37,13 @@ def _max_proj_lineup(roster: pl.DataFrame) -> list[int]:
     return picked + rest.sort("proj", descending=True)["player_id"].head(1).to_list()
 
 
-def run_season(frame: pl.DataFrame, season: int, leagues: int = 10, n: int = 4000, seed: int = 0) -> pl.DataFrame:
+NEUTRAL = {"roof": None, "wind": None, "temp": None, "exp_margin": None, "report_status": "none",
+           "practice_status": None, "games_back": 0, "ol_out": 0, "opp_ol_out": 0, "opp_db_out": 0}
+
+
+def run_season(frame: pl.DataFrame, season: int, leagues: int = 10, n: int = 4000, seed: int = 0,
+               variant: str = "model") -> pl.DataFrame:
+    """variant: model (as fit) | espn_mean (mean = ESPN projection) | espn_mean_ctx (ESPN + context shift)."""
     train = frame.filter(pl.col("season") < season)
     t0 = time.time()
     marg = Marginals(use_context=True).fit(train)
@@ -49,6 +55,12 @@ def run_season(frame: pl.DataFrame, season: int, leagues: int = 10, n: int = 400
         pl.col("espn_id").alias("player_id"), pl.lit(BENCH).alias("slot"), pl.lit(False).alias("locked"),
         pl.lit(False).alias("unavailable"))
     q = marg.quantiles(test)
+    proj = test["proj"].to_numpy()
+    if variant == "espn_mean":
+        q = anchor(q, proj)
+    elif variant == "espn_mean_ctx":
+        neutral = test.with_columns([pl.lit(v).cast(test.schema[c]).alias(c) for c, v in NEUTRAL.items() if c in test.columns])
+        q = anchor(q, proj, marg.quantiles(neutral))
     q_of = dict(zip(test["player_id"].to_list(), q))
     rng = np.random.default_rng(seed + season)
     rows = []
@@ -77,7 +89,7 @@ def run_season(frame: pl.DataFrame, season: int, leagues: int = 10, n: int = 400
                     x_ids = {p for _, p in dec.lineups[dec.max_proj]}
                     m_pts = sum(act.get(p, 0.0) for p in m_ids)
                     x_pts = sum(act.get(p, 0.0) for p in x_ids)
-                    rows.append({"season": season, "week": week, "league": lg, "team": int(me_t),
+                    rows.append({"variant": variant, "season": season, "week": week, "league": lg, "team": int(me_t),
                                  "differs": m_ids != x_ids, "n_changes": len(m_ids - x_ids),
                                  "model_pwin": float(dec.pwin[dec.best]), "maxproj_pwin": float(dec.pwin[dec.max_proj]),
                                  "model_points": m_pts, "maxproj_points": x_pts, "opp_points": opp_pts,
@@ -86,19 +98,20 @@ def run_season(frame: pl.DataFrame, season: int, leagues: int = 10, n: int = 400
         log.info("season %d week %d done (%d decisions so far, %.0fs)", season, week, len(rows), time.time() - t0)
     out = pl.DataFrame(rows)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    out.write_parquet(OUT_DIR / f"{season}.parquet")
+    out.write_parquet(OUT_DIR / (f"{season}.parquet" if variant == "model" else f"{variant}-{season}.parquet"))
     return out
 
 
-def run(seasons=(2022, 2023, 2024, 2025), leagues: int = 10, n: int = 4000) -> None:
+def run(seasons=(2022, 2023, 2024, 2025), leagues: int = 10, n: int = 4000, variant: str = "model") -> None:
     frame = pl.read_parquet(DATA_DIR / "marginal_frame.parquet")  # 2019-2025, active players, with context
     for s in seasons:
-        if (OUT_DIR / f"{s}.parquet").exists():
-            log.info("season %d already done", s)
+        f = OUT_DIR / (f"{s}.parquet" if variant == "model" else f"{variant}-{s}.parquet")
+        if f.exists():
+            log.info("season %d (%s) already done", s, variant)
             continue
-        run_season(frame, s, leagues, n)
+        run_season(frame, s, leagues, n, variant=variant)
 
 
-def summary() -> pl.DataFrame:
-    df = pl.concat([pl.read_parquet(f) for f in sorted(OUT_DIR.glob("*.parquet"))])
-    return df
+def summary(variant: str = "model") -> pl.DataFrame:
+    pat = "[0-9]*.parquet" if variant == "model" else f"{variant}-*.parquet"
+    return pl.concat([pl.read_parquet(f) for f in sorted(OUT_DIR.glob(pat))], how="diagonal_relaxed")

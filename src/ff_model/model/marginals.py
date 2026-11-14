@@ -184,3 +184,20 @@ def fit_live(seasons=range(2019, 2026), depth: float = 2.0) -> Marginals:
     m = Marginals(use_context=True).fit(train)
     m.save(MODEL_PATH)
     return m
+
+
+def curve_mean(q: np.ndarray) -> np.ndarray:
+    """Mean of each row's distribution (quantile curve + the same linear tails the simulator uses)."""
+    grid = np.linspace(0.0005, 0.9995, 1000)
+    t = np.concatenate([[0.0], TAUS, [1.0]])
+    lo_w = np.maximum(q[:, 1] - q[:, 0], 1e-6) * TAUS[0] / (TAUS[1] - TAUS[0])
+    hi_w = np.maximum(q[:, -1] - q[:, -2], 1e-6) * (1 - TAUS[-1]) / (TAUS[-1] - TAUS[-2])
+    full = np.column_stack([q[:, 0] - lo_w, q, q[:, -1] + hi_w])
+    return np.array([np.interp(grid, t, row).mean() for row in full])
+
+
+def anchor(q: np.ndarray, proj: np.ndarray, q_base: np.ndarray | None = None) -> np.ndarray:
+    """Shift each curve so its mean is ESPN's projection (plus, if q_base is given, the
+    context's own shift of the mean: mean(q) - mean(q_base)). Shape and spread unchanged."""
+    target = proj + ((curve_mean(q) - curve_mean(q_base)) if q_base is not None else 0.0)
+    return q + (target - curve_mean(q))[:, None]
