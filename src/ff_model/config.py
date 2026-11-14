@@ -1,6 +1,7 @@
 """League constants, paths, and credential loading.
 
-Credentials come from the gitignored .env and must never be printed or logged.
+Credentials and league/team ids come from the gitignored .env. Credentials
+must never be printed or logged.
 """
 from __future__ import annotations
 
@@ -16,10 +17,23 @@ LOG_DIR = ROOT / "logs"
 DB_PATH = DATA_DIR / "archive.db"
 
 SEASON = 2026
-LEAGUE_ID = 765545014
-MY_TEAM_ID = 9  # Nostrildamus
-
 ET = ZoneInfo("America/New_York")
+
+
+def _env() -> dict[str, str]:
+    vals = dotenv_values(ROOT / ".env")
+    return {k: v for k, v in {**vals, **os.environ}.items() if v is not None}
+
+
+def _required(name: str) -> str:
+    try:
+        return _env()[name]
+    except KeyError:
+        raise RuntimeError(f"missing {name} in .env") from None
+
+
+LEAGUE_ID = int(_required("ESPN_LEAGUE_ID"))
+MY_TEAM_ID = int(_required("ESPN_TEAM_ID"))
 
 ESPN_LEAGUE_URL = (
     f"https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/{SEASON}"
@@ -41,17 +55,8 @@ PROP_MARKETS = ["player_anytime_td", "player_receptions", "player_reception_yds"
                 "player_rush_yds", "player_pass_yds"]
 
 
-def _env() -> dict[str, str]:
-    vals = dotenv_values(ROOT / ".env")
-    return {k: v for k, v in {**vals, **os.environ}.items() if v is not None}
-
-
 def espn_cookies() -> dict[str, str]:
-    env = _env()
-    try:
-        return {"espn_s2": env["espn_s2"], "SWID": env["SWID"]}
-    except KeyError as e:
-        raise RuntimeError(f"missing {e.args[0]} in .env") from None
+    return {"espn_s2": _required("espn_s2"), "SWID": _required("SWID")}
 
 
 def odds_api_key() -> str | None:

@@ -1,76 +1,161 @@
-Fantasy start/sit model
+# Fantasy start/sit model
 
-Personal project: a weekly start/sit decision tool for my ESPN league. 16-team, full PPR, 4-pt passing TDs, private league. Team: Nostrildamus. Playoffs are Weeks 15–17.
+A weekly start/sit decision tool for my ESPN league.
 
-Core idea
-Don't build point projections from scratch. Use consensus (ESPN, maybe other sources) as the forecast of each player's average.
-The edge is in the decision layer:
-a distribution for each player,
-a correlation structure between players,
-an optimizer that maximizes P(win this head-to-head matchup), not expected points.
-Head-to-head is a binary payoff, so variance and correlation with the opponent's lineup matter.
-Example: a heavy favorite should hedge.
-Example: starting a QB in the same game as the opponent's QB reduces the variance of the margin.
-Phases
-Archiver (urgent, perishable data). Python script using espn-api (cwendt94).
-Snapshot each run:
-ESPN projections (statSourceId=1) and injury status for all players
-all league rosters and lineups, plus my matchup
-scoring settings (once)
-Schedule: Tue (after waivers), Thu, Sat night, Sun ~11:45 ET (after inactives), Sun ~3:55 ET (before late games).
-Store timestamped snapshots in SQLite or Parquet. Schedule with launchd.
-Historical research data from nflverse (nflreadpy / nfl_data_py):
-weekly stats, snap counts, targets
-schedules with closing spread and total
-injury reports
-Historical ESPN projections exist after all (found 2026-11-14). ESPN's public leaguedefaults endpoint serves weekly projections with stat lines for 2019–2025. 2018 returns nothing; earlier seasons 404.
-They replace the planned proxy projection: error shape, spread and correlation are estimated from ESPN's own errors, rescored to league scoring.
-Verified they are pre-game projections, not finals: 2020 corr(proj, actual) = 0.56; late scratches such as Tyrod Taylor 2020 W2 keep nonzero projections; finished 2026 games keep pre-game values.
-Unknown: whether they freeze at kickoff or earlier (before inactives). Check by comparing archived 2026 W10 snapshots to what the API serves afterwards.
-Gaps: no ESPN history before 2019. Injury and status fields in those responses are current, so never use them historically; use nflverse injury reports.
-Player distributions. Split each projection into a yardage/receptions part (roughly normal) and a TD part (Poisson-like), so TD-heavy players get the right skew. Validate out of sample with PIT histograms.
-Correlation model. Factors for each game's environment, each team's passing and rushing, and a negative link between an offense and the opposing DST. Join to the player distributions with a copula. Fit on early seasons, test on later ones.
-Optimizer. Enumerate legal lineups; Monte Carlo (~20k draws) of both lineups; rank by P(win).
-Late swap: re-run at each lock with realized scores fixed.
-Output: best lineup, P(win) gain vs the highest-projection lineup, whether the decision is close, and the main reason.
-Backtest and live tracking.
-Walk-forward on synthetic matchups built from real player-weeks.
-Measure lift only on decisions where the model disagrees with "start the highest projection."
-Log each live week: model pick, my pick, outcome. Bench actual points come from ESPN box scores.
-Constraints
-ESPN cookies (espn_s2, SWID) are login credentials. They live in the macOS Keychain or a gitignored .env. Never print, log, or commit them.
-The ESPN API is unofficial and undocumented: keep requests polite and expect it to break.
-Watch for lookahead leakage: only use data available at lineup lock.
-League facts (from ESPN settings)
-League 765545014, season 2026, my team ID 9. Lineup: QB, RB×2, WR×2, TE, FLEX, D/ST, K; 7 bench, 1 IR.
-Lock type INDIVIDUAL_GAME, so late swap is possible. Waivers process Mon and Wed–Sun (not Tue).
-The Odds API free tier: 500 credits/month (assumed to reset on the 1st). Game lines cost 2 per call (spreads + totals) and run at every slot.
-Player props cost 1 credit per market per game. Each game is pulled once, at the last slot before it locks.
-Markets in priority order: anytime TD, receptions, receiving yds, rushing yds, passing yds. A planner drops markets from the end so the rest of the month fits.
-The archiver stops calling below 40 remaining.
+- **League:** private, 16 teams, full PPR, 4-pt passing TDs
 
-Archiver (built)
-`uv run ff-archive status | snapshot [--odds] [--prev-week] | reparse | tick`
-launchd runs `tick` every 5 min; it snapshots only when a slot is due (see src/ff_model/archive/slots.py).
-Slots: Tue 12:00 (+ last week's finals), Wed 12:00, Sat 22:00; Sun 11:45 and 15:55; international games T-90; all other kickoffs (TNF/SNF/MNF/Sat) T-60.
-pmset wakes need deploy/ff-archiver.sudoers installed in /etc/sudoers.d.
-Data: data/archive.db. raw_responses (gzipped JSON) is the source of truth; other tables come from archive/parse.py.
-Layout: src/ff_model/{config,db,cli}.py are shared. sources/ holds the API clients (espn, odds). archive/ holds slots, runner, wakes, launchd, parse.
-Later phases go in sibling packages (e.g. research/, model/, optimize/, web/).
+## Core idea
 
-ESPN projection history (built)
-`uv run ff-archive espn-history` writes raw gzipped JSON to data/espn_history/<season>/, plus projections.parquet with st_<espn stat id> columns.
-research/projection_errors.build(seasons) joins these to league-scored actuals; relevant() keeps the weekly fantasy-relevant pool.
-research/scoring.py applies league scoring to nflverse actuals and to ESPN stat lines. Validated against ESPN: actuals 99.6% exact, W10 projections 686/686 exact.
+Don't build point projections from scratch. ESPN's projections are the forecast of each player's average. The edge is in the **decision layer**:
 
-nflverse history (built)
-`uv run ff-archive nflverse` writes data/nflverse/<dataset>/<season>.parquet for 2012 through the current season. Read it back with research.nflverse.load().
-Datasets: player_stats, team_stats, snap_counts, schedules (spread_line/total_line), injuries, ff_opportunity, and ff_playerids (one table).
-Completed seasons download once; the current season is re-fetched on every run. Run it by hand on Tuesdays, since nothing here is perishable.
-ESPN player_id maps to nflverse gsis_id through ff_playerids.espn_id (all rostered skill players and kickers match). D/ST must join on NFL team instead.
-Leakage: current-season files include games already played this week, and schedules.spread_line for unplayed games is a live line, not a closing one.
+1. a **distribution** for each player, not just a point estimate
+2. a **correlation structure** between players
+3. an **optimizer** that maximizes P(win this head-to-head matchup), not expected points
 
-Status
-Archiver live as of 2026-11-13; Week 10 is being captured. nflverse history pulled 2026-11-13.
-Next: player distributions (yardage part + TD part) fit on ESPN 2019–2023 errors, tested on 2024–2025; then the correlation model.
-Open: whether to add a second projection source (e.g. FantasyPros consensus).
+Head-to-head is a win/lose payoff, so variance and correlation with the opponent's lineup matter. For example:
+
+- A heavy favorite should hedge, choosing lower-variance options.
+- Starting a QB from the same game as the opponent's QB reduces the variance of the margin.
+
+## Rules
+
+- **Credentials:** the ESPN cookies (`espn_s2`, `SWID`) and `ODDS_API_KEY` are secrets. They live in the gitignored `.env`. Never print, log or commit them.
+- **League privacy:** league and team IDs, team names and league-mates' details stay out of the repo, including code, docs and commit messages. Read them from `.env` or the archive.
+- **ESPN API:** it's unofficial and undocumented. Keep requests polite (seconds apart, stop on 401/403/429) and expect it to break.
+- **No lookahead leakage:** the model may only use data that was available at lineup lock.
+- **The Odds API budget:** 500 credits/month on the free tier. Never design anything that could exceed it.
+
+## League facts (from ESPN settings)
+
+| | |
+|---|---|
+| League and team IDs | in `.env` (`ESPN_LEAGUE_ID`, `ESPN_TEAM_ID`), not in the repo |
+| Season | 2026 |
+| Starting lineup | QB, RB×2, WR×2, TE, FLEX, D/ST, K (plus 7 bench, 1 IR) |
+| Lineup lock | Per game (`INDIVIDUAL_GAME`), so late swap is possible |
+| Waivers | Process Mon and Wed–Sun, **not Tuesday** |
+
+## Plan and status
+
+| Phase | Status |
+|---|---|
+| 1. Archiver | ✅ Live since 2026-11-13 |
+| 2. Historical data | ✅ nflverse + ESPN projections 2019–2025 + league scoring |
+| 3. Player distributions | ⏭️ Next |
+| 4. Correlation model | Not started |
+| 5. Optimizer + late swap | Not started |
+| 6. Backtest and live tracking | Not started |
+
+### 1. Archiver ✅
+
+Saves the data that disappears if it isn't captured at the time. launchd runs `tick` every 5 minutes, and it only takes a snapshot when a slot is due.
+
+**Each snapshot saves:**
+
+- ESPN projections and injury status for every player in the pool
+- all 16 rosters and lineups, plus all matchups (with ESPN's own win probability)
+- game lines (spreads and totals) from The Odds API
+- player props, for games that lock before the next slot
+- league scoring settings (on Tuesdays)
+
+**Slots (ET)**, generated from the NFL schedule in `archive/slots.py`:
+
+| Slot | When |
+|---|---|
+| Tue | 12:00. Also saves last week's final lineups and points (bench included) |
+| Wed | 12:00, after Wednesday waivers |
+| Sat | 22:00 |
+| Sun early games | 11:45, after inactives |
+| Sun late games | 15:55 |
+| International games | 90 min before kickoff |
+| Every other kickoff (Thu, Sun night, Mon, Sat) | 60 min before kickoff |
+
+**Odds budget:**
+
+- Game lines cost 2 credits per call (spreads + totals), at every slot.
+- Player props cost 1 credit per market per game. Each game is pulled once, at the last slot before it locks.
+- Prop markets in priority order: anytime TD, receptions, receiving yards, rushing yards, passing yards. A planner drops markets from the end of that list if the rest of the month can't be covered.
+- No calls below 40 credits remaining. The quota is assumed to reset on the 1st.
+
+**Waking the Mac:** each tick schedules `pmset` wakes 3 minutes before upcoming slots. This needs `deploy/ff-archiver.sudoers` installed in `/etc/sudoers.d` (it is).
+
+### 2. Historical data ✅
+
+**ESPN projection history.** ESPN's public endpoint still serves weekly projections with full projected stat lines for **2019–2025**. 2018 returns nothing; earlier seasons return 404. This replaced the original plan of building a proxy projection: error shape, spread and correlation come straight from ESPN's own errors.
+
+- **Verified as pre-game projections, not final scores:**
+  - In 2020, projections and actuals correlate at 0.56 and match exactly in only ~1% of player-weeks.
+  - Late scratches keep their projection. Tyrod Taylor, 2020 W2, still shows 16.8.
+  - Finished 2026 games still show the pre-game numbers.
+- **Unknown:** whether they freeze at kickoff or earlier (before inactives). Check this by comparing the archived 2026 W10 snapshots with what the API serves afterwards.
+- **Don't use** the injury and status fields in these responses. They're players' *current* status, not the status that week. Use the nflverse injury reports instead.
+
+**nflverse (2012 to now):** weekly player and team stats, snap counts, schedules with closing spread and total, injury reports, `ff_opportunity` (expected fantasy points), and `ff_playerids` (ID crosswalk).
+
+- ESPN player IDs map to nflverse `gsis_id` through `ff_playerids.espn_id`. All rostered skill players and kickers match.
+- D/ST joins on NFL team instead.
+- **Leakage:** current-season files include games already played this week, and `schedules.spread_line` for unplayed games is a live line, not a closing one.
+
+**League scoring** (`research/scoring.py`) applies this league's rules to both nflverse actuals and ESPN stat lines.
+
+- Validated against ESPN: 99.6% of 2026 W1–9 actuals match exactly, and all 686 W10 projections match.
+- ESPN quirks it handles: a blocked FG counts as a miss; points allowed excludes points the opponent's defense or special teams scored; yards allowed is net of sacks (nflverse stores sack yards as negative in recent seasons).
+
+### 3. Player distributions ⏭️
+
+Split each projection into a yardage/receptions part (roughly normal) and a TD part (Poisson-like), so TD-heavy players get the right skew. Use ESPN's projected stat lines for the split. Fit on 2019–2023 and test on 2024–2025 with PIT histograms.
+
+### 4. Correlation model
+
+Factors for each game's environment, each team's passing and rushing, and a negative link between an offense and the opposing D/ST. Join them to the player distributions with a copula. Fit on early seasons, test on later ones.
+
+### 5. Optimizer
+
+- Enumerate legal lineups, run a Monte Carlo of both lineups (~20k draws), and rank by P(win).
+- **Late swap:** re-run at each lock, with scores already played fixed.
+- **Output:** best lineup, P(win) gain over the highest-projection lineup, whether the decision is close, and the main reason.
+- **Interface:** a local web page where I trigger the optimizer myself.
+
+### 6. Backtest and live tracking
+
+- Walk-forward on synthetic matchups built from real player-weeks.
+- Measure lift only on decisions where the model disagrees with "start the highest projection."
+- Log each live week: model pick, my pick, outcome. Bench points come from the Tuesday snapshot.
+
+## Code and data
+
+```
+src/ff_model/
+  config.py  db.py  cli.py         shared by all phases
+  sources/   espn.py  odds.py      API clients
+  archive/   slots.py  runner.py  wakes.py  launchd.py  parse.py
+  research/  nflverse.py  espn_history.py  scoring.py  projection_errors.py
+```
+
+Later phases go in sibling packages (`model/`, `optimize/`, `web/`).
+
+**Commands** (`uv run ff-archive …`):
+
+| Command | What it does |
+|---|---|
+| `status` | upcoming and missed slots, recent snapshots, odds credits, props plan |
+| `snapshot [--odds] [--prev-week]` | take a manual snapshot (odds cost credits) |
+| `tick` | what launchd runs every 5 min |
+| `reparse` | rebuild the derived tables from saved raw responses |
+| `backfill-finals WEEKS…` | save final lineups and points for past weeks |
+| `nflverse` | download or refresh nflverse history (run by hand on Tuesdays) |
+| `espn-history` | download ESPN projections 2019–2025 (resumable) |
+
+**Data** (all under `data/`, gitignored, only on this laptop):
+
+| Path | Contents | Replaceable? |
+|---|---|---|
+| `archive.db` | live snapshots. `raw_responses` (gzipped JSON) is the source of truth; other tables come from `parse.py` | **No** |
+| `espn_history/` | raw ESPN projection responses + `projections.parquet` | Only while ESPN keeps serving them |
+| `nflverse/` | Parquet per dataset and season | Yes, re-download in ~20 s |
+
+## Open questions
+
+- Odds API quota reset date: assumed the 1st of the month. Check the account dashboard.
+- Backups: `archive.db` and `espn_history/` exist only on this laptop. A cloud-folder copy has been proposed.
+- FantasyPros: decided against. Player props from The Odds API are the better second source.

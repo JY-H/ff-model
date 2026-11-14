@@ -6,7 +6,7 @@ from pathlib import Path
 
 from ..config import LOG_DIR, ROOT
 
-LABEL = "com.nostrildamus.ff-archiver"
+LABEL = "local.ff-model.archiver"
 PLIST = Path.home() / "Library/LaunchAgents" / f"{LABEL}.plist"
 
 
