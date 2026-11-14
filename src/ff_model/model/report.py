@@ -22,7 +22,7 @@ from ..db import load_raw
 from ..research.line_injuries import starters_out
 from . import correlation as C
 from .live import TEAM_NAMES, build_inputs
-from .marginals import MODEL_PATH, TAUS, Marginals, features
+from .marginals import MODEL_PATH, TAUS, Marginals, curve_mean, features
 from .optimize import BENCH, IR, SLOT, _opponent_starters, _reason, _slot_counts, decide
 
 SHOW_TAUS = (0.1, 0.25, 0.5, 0.75, 0.9)
@@ -348,9 +348,12 @@ def build_report(week: int | None = None, team_id: int | None = None, snapshot_i
     dec = decide(mine, opp_start, q_of, counts, C.load(), n=n, seed=seed,
                  force_in=[int(x) for x in overrides.get("force_in", [])],
                  force_out=[int(x) for x in overrides.get("force_out", [])])
-    best_ids = {p for _, p in dec.lineups[dec.best]}
-    best_slot = {p: s for s, p in dec.lineups[dec.best]}
-    mp_ids = {p for _, p in dec.lineups[dec.max_proj]}
+    # lineups may hold "EMPTY-..." placeholders for slots nobody available can fill; keep real players only
+    best_ids = {p for _, p in dec.lineups[dec.best] if not isinstance(p, str)}
+    best_slot = {p: s for s, p in dec.lineups[dec.best] if not isinstance(p, str)}
+    mp_ids = {p for _, p in dec.lineups[dec.max_proj] if not isinstance(p, str)}
+    mp_slot = {p: s for s, p in dec.lineups[dec.max_proj] if not isinstance(p, str)}
+    means = curve_mean(q)  # model's expected points per player
     member = [{p for _, p in lu} for lu in dec.lineups]
     actual_start = set(mine.filter(~pl.col("slot").is_in([BENCH, IR]))["player_id"])
 
@@ -367,9 +370,10 @@ def build_report(week: int | None = None, team_id: int | None = None, snapshot_i
         out = {
             "id": p, "name": r["name"], "pos": r["pos"] or names_raw.get(p, (None, None))[1], "team": r["team"], "opp": r["opp"],
             "kickoff": r["kickoff_utc"], "slot": SLOT.get(r["slot"], "BE" if r["slot"] == BENCH else "IR"),
-            "proj": r["proj"], "locked": r["locked"], "actual": r["actual"], "final": r.get("final"),
+            "proj": r["proj"], "model_mean": float(means[i]), "locked": r["locked"], "actual": r["actual"], "final": r.get("final"),
             "unavailable": bool(r["unavailable"]) and not r["locked"], "role": r["role"],
-            "status": r["report_status"], "practice": r["practice_status"], "injury": r["injury"],
+            "status": r["report_status"] or {"INJURY_RESERVE": "IR", "OUT": "Out", "SUSPENSION": "Suspended"}.get(
+                (names_raw.get(p) or (None, None, None))[2]), "practice": r["practice_status"], "injury": r["injury"],
             "games_back": r["games_back"], "roof": r["roof"], "wind": r["wind"], "temp": r["temp"],
             "gust": r.get("gust_mph"), "precip_prob": r.get("precip_prob"), "spread": r["exp_margin"], "total": total,
             "ol_out": r["ol_out"], "opp_ol_out": r["opp_ol_out"], "opp_db_out": r["opp_db_out"],
@@ -391,6 +395,7 @@ def build_report(week: int | None = None, team_id: int | None = None, snapshot_i
                 with_p = [dec.pwin[k] for k, m in enumerate(member) if p in m]
                 without = [dec.pwin[k] for k, m in enumerate(member) if p not in m]
                 out.update(recommended=p in best_ids, rec_slot=best_slot.get(p), in_max_proj=p in mp_ids,
+                           maxproj_slot=mp_slot.get(p),
                            pwin_if_started=float(max(with_p)) if with_p else None,
                            pwin_if_benched=float(max(without)) if without else None)
             out["stacks"] = sorted(f"{nm} ({ps})" for g, t, ps, nm in my_games
@@ -430,6 +435,24 @@ def build_report(week: int | None = None, team_id: int | None = None, snapshot_i
     reason = _reason(float(dec.pwin[dec.max_proj]), {p for p in ins if p in by_id}, {p for p in outs if p in by_id},
                      by_id, opp_start, df)
 
+    locked_rows = mine.filter(pl.col("locked") & ~pl.col("slot").is_in([BENCH, IR]))
+    proj_of = dict(zip(df["player_id"].to_list(), df["proj"].to_list()))
+    mean_of = dict(zip(df["player_id"].to_list(), means.tolist()))
+    locked_now = float(locked_rows["actual"].fill_null(0).sum())
+
+    def proj_total(ids):
+        return float(locked_now + sum(proj_of.get(p, 0.0) for p in ids))
+
+    def mean_total(ids):
+        return float(locked_now + sum(mean_of.get(p, 0.0) for p in ids))
+    started_ids = set(mine.filter(~pl.col("slot").is_in([BENCH, IR]) & ~pl.col("locked"))["player_id"])
+    lineup_totals = {
+        "model": {"espn": proj_total(best_ids), "model": mean_total(best_ids)},
+        "max_proj": {"espn": proj_total(mp_ids), "model": mean_total(mp_ids)},
+        "started": {"espn": proj_total(started_ids), "model": mean_total(started_ids)},
+        "opponent": {"espn": float(opp_start.filter(~pl.col("locked"))["proj"].sum() + opp_start.filter(pl.col("locked"))["actual"].fill_null(0).sum())},
+    }
+
     outcome = None
     if source == "replay":
         fin = dict(zip(mine["player_id"], mine["final"]))
@@ -455,7 +478,7 @@ def build_report(week: int | None = None, team_id: int | None = None, snapshot_i
         "close": bool(len(order) > 1 and dec.pwin[order[0]] - dec.pwin[order[1]] < 0.01),
         "alternatives": [alt(int(k)) for k in order[1:6]],
         "locked_count": int(mine.filter(pl.col("locked") & ~pl.col("slot").is_in([BENCH, IR])).height),
-        "players": {"me": me_rows, "opp": opp_rows}, "outcome": outcome, "draws": n,
+        "players": {"me": me_rows, "opp": opp_rows}, "outcome": outcome, "lineup_totals": lineup_totals, "draws": n,
         "teams": [{"id": k, "name": v} for k, v in sorted(names.items(), key=lambda kv: kv[1].lower())],
     }
 
@@ -473,7 +496,7 @@ def _roster_names(con, source, sid, week) -> dict[int, tuple]:
         for t in load_raw(row)["teams"]:
             for e in t["roster"]["entries"]:
                 p = e["playerPoolEntry"]["player"]
-                out[p["id"]] = (p["fullName"], pos_map.get(p["defaultPositionId"]))
+                out[p["id"]] = (p["fullName"], pos_map.get(p["defaultPositionId"]), p.get("injuryStatus"))
     return out
 
 

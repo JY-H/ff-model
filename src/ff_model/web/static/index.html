@@ -53,6 +53,7 @@ td { padding: 6px; border-bottom: 1px solid var(--grid); vertical-align: middle;
 .clickable { cursor: pointer; } .clickable:hover { background: var(--grid); }
 .h2h td.slot { text-align: center; font-weight: 600; color: var(--text-secondary); font-size: 12px; background: var(--surface-0); width: 52px; }
 .h2h td.r { text-align: right; } .h2h .rec { box-shadow: inset 3px 0 0 var(--me); }
+.three td.diffcell { background: var(--hl); } .three tr.totals td { border-top: 2px solid var(--border); vertical-align: top; }
 .legend { display: flex; gap: 14px; font-size: 12px; color: var(--text-secondary); align-items: center; flex-wrap: wrap; }
 .tip { position: fixed; pointer-events: none; background: var(--surface-1); color: var(--text-primary); border: 1px solid var(--border);
   border-radius: 8px; padding: 8px 10px; font-size: 12px; box-shadow: 0 4px 14px rgba(0,0,0,.15); display: none; z-index: 30; max-width: 320px; }
@@ -175,7 +176,7 @@ async function route() {
 function statusChips(p) {
   const c = [];
   if (p.locked) c.push(`<span class="chip">Locked · ${pts(p.actual)}</span>`);
-  if (p.status === "Out") c.push(`<span class="chip status" style="--dot:var(--critical)">Out</span>`);
+  if (p.status === "Out" || p.status === "IR") c.push(`<span class="chip status" style="--dot:var(--critical)">${p.status}</span>`);
   else if (p.status === "Doubtful") c.push(`<span class="chip status" style="--dot:var(--serious)">Doubtful</span>`);
   else if (p.status === "Questionable") c.push(`<span class="chip status" style="--dot:var(--warning)">Questionable</span>`);
   if (p.practice && p.status && p.status !== "none")
@@ -250,8 +251,9 @@ function slotLists(rows, side) {
 }
 function cell(p, side, align) {
   if (!p) return side === "me" ? `<td class="muted small">(empty)</td><td></td><td></td><td></td>` : `<td></td><td></td><td></td><td class="muted small r">(empty)</td>`;
-  const fin = p.final != null ? ` · <b>final ${pts(p.final)}</b>` : "";
-  const name = `<td class="clickable ${align}" data-player="${p.id}"><div class="pname">${esc(p.name)}</div>
+  const fin = "";
+  const finPill = p.final != null ? `<span class="chip" style="font-weight:650;color:var(--text-primary)">final ${pts(p.final)}</span>` : "";
+  const name = `<td class="clickable ${align}" data-player="${p.id}"><div class="pname">${esc(p.name)} ${finPill}</div>
     <div class="pmeta">${esc(p.pos || "")} · ${esc(p.team || "")}${p.opp ? " vs " + esc(p.opp) : " · bye"} · ${p.locked ? "played" : when(p.kickoff)}${fin}</div>
     <div class="chips" style="${align === "r" ? "justify-content:flex-end;" : ""}margin-top:2px">${statusChips(p)}</div></td>`;
   const e = `<td class="num">${pts(p.proj)}</td>`, m = `<td class="num">${p.locked || p.unavailable ? "–" : pts(p.quantiles.p50)}</td>`;
@@ -264,6 +266,68 @@ function benchTable(rows, side, title) {
     ${rows.map(p => `<tr><td class="clickable" data-player="${p.id}"><div class="pname">${esc(p.name)}</div><div class="pmeta">${esc(p.pos || "")} · ${esc(p.team || "")}${p.opp ? " vs " + esc(p.opp) : " · bye"}${p.final != null ? ` · final ${pts(p.final)}` : ""}${p.started_actually ? " · they started him" : ""}</div><div class="chips">${statusChips(p)}</div></td>
       <td class="num">${pts(p.proj)}</td><td class="num">${p.unavailable ? "–" : pts(p.quantiles.p50)}</td><td class="clickable" data-player="${p.id}">${rangeSvg(p, S.sc, side)}</td>
       ${side === "me" ? `<td class="num">${p.pwin_if_started != null ? pct(p.pwin_if_started, 1) : "–"}</td>` : ""}</tr>`).join("")}</table></div>`;
+}
+function replayTable(r) {
+  // three lineups, slot by slot: highest projection, the model's, and what was actually started
+  const me = r.players.me;
+  const locked = me.filter(p => p.locked && !["BE", "IR"].includes(p.slot));
+  const lineups = {
+    max: [...locked.map(p => [p.slot, p]), ...me.filter(p => p.maxproj_slot).map(p => [p.maxproj_slot, p])],
+    model: [...locked.map(p => [p.slot, p]), ...me.filter(p => p.recommended).map(p => [p.rec_slot, p])],
+    started: me.filter(p => !["BE", "IR"].includes(p.slot)).map(p => [p.slot, p]),
+  };
+  const bySlot = k => { const o = {}; for (const [s, p] of lineups[k]) (o[s] ||= []).push(p); return o; };
+  const L = {max: bySlot("max"), model: bySlot("model"), started: bySlot("started")};
+  // RB/WR and FLEX are interchangeable: treat RB, WR, TE and FLEX as one pool when lining rows up
+  const rows = [];
+  for (const group of [["QB"], ["RB", "WR", "TE", "FLEX"], ["D/ST"], ["K"]]) {
+    const take = k => group.flatMap(s => (L[k][s] || []).map(p => ({s, p})));
+    const a = take("max"), b = take("model"), c = take("started");
+    const ids = [...new Set([...a, ...b, ...c].map(x => x.p.id))];
+    // rows: players in all three first, then the rest, keeping each lineup's slot label
+    const inAll = ids.filter(id => [a, b, c].every(l => l.some(x => x.p.id === id)));
+    const used = {a: new Set(), b: new Set(), c: new Set()};
+    const pick = (l, u, id) => { const x = l.find(y => y.p.id === id && !u.has(y.p.id)); if (x) u.add(x.p.id); return x || null; };
+    for (const id of inAll) rows.push({slot: (a.find(x => x.p.id === id) || {}).s, a: pick(a, used.a, id), b: pick(b, used.b, id), c: pick(c, used.c, id)});
+    const rest = l => l.filter(x => !inAll.includes(x.p.id));
+    const ra = rest(a), rb = rest(b), rc = rest(c), n = Math.max(ra.length, rb.length, rc.length);
+    // pair the remaining players, preferring the same player across lineups
+    for (let i = 0; i < n; i++) {
+      const x = ra[i] || null, y = rb.find(z => x && z.p.id === x.p.id) || rb.find(z => !used.b.has(z.p.id)) || null;
+      if (y) used.b.add(y.p.id);
+      const z = rc.find(w => (x && w.p.id === x.p.id) || (y && w.p.id === y.p.id)) || rc.find(w => !used.c.has(w.p.id)) || null;
+      if (z) used.c.add(z.p.id);
+      rows.push({slot: (x || y || z).s, a: x, b: y, c: z});
+    }
+  }
+  const order = {QB: 0, RB: 1, WR: 2, TE: 3, FLEX: 4, "D/ST": 5, K: 6};
+  rows.sort((u, v) => order[u.slot] - order[v.slot]);
+  const fin = p => p ? (p.final ?? p.actual ?? 0) : 0;
+  const why = p => !p || !p.unavailable ? "" : `<span class="chip status" style="--dot:var(--critical)">${
+    p.status === "IR" ? "on IR" : p.status === "Out" ? "ruled Out" : p.status === "Suspended" ? "suspended" : p.opp ? "inactive" : "bye week"}: couldn't score</span>`;
+  const cellOf = (x, showModel, diff) => {
+    if (!x) return `<td class="muted small">(empty)</td><td></td>`;
+    const p = x.p;
+    return `<td class="clickable ${diff ? "diffcell" : ""}" data-player="${p.id}"><div class="pname">${esc(p.name)}</div>
+      <div class="pmeta">${esc(p.pos || "")} · ${esc(p.team || "")}${p.locked ? " · locked" : ""} · ESPN ${pts(p.proj)}${showModel && !p.locked && !p.unavailable ? ` · model ${pts(p.model_mean)}` : ""}</div>${why(p)}</td>
+      <td class="num ${diff ? "diffcell" : ""}"><b>${pts(fin(p))}</b></td>`;
+  };
+  const T = r.lineup_totals, o = r.outcome;
+  const res = v => v > o.opponent ? "win" : v < o.opponent ? "loss" : "tie";
+  const tot = (k, finalv) => `<td class="small"><div>ESPN projected <b>${pts(T[k].espn)}</b></div><div>model expected <b>${pts(T[k].model)}</b></div></td>
+    <td class="num"><b>${pts(finalv)}</b><div class="small">${res(finalv)}</div></td>`;
+  const same = (x, y) => (x && x.p.id) === (y && y.p.id);
+  return `<h2>Highest projection vs. model vs. what was actually started</h2>
+    <div class="card scroll"><table class="three">
+      <tr><th>Slot</th><th>Highest-projection lineup</th><th class="num">Final</th><th>Model's lineup</th><th class="num">Final</th><th>Actually started</th><th class="num">Final</th></tr>
+      ${rows.map(x => `<tr><td class="small">${x.slot}</td>${cellOf(x.a, false, false)}${cellOf(x.b, true, !same(x.a, x.b))}${cellOf(x.c, false, !same(x.a, x.c))}</tr>`).join("")}
+      <tr class="totals"><td class="small"><b>Total</b></td>${tot("max_proj", o.max_proj)}${tot("model", o.model)}${tot("started", o.actual)}</tr>
+    </table>
+    <div class="chips" style="margin-top:8px">
+      <span class="chip">${esc(r.opponent.name)}: ESPN projected ${pts(T.opponent.espn)}, scored ${pts(o.opponent)}</span>
+      <span class="chip">Model P(win) ${pct(r.p_win)} · highest projection ${pct(r.p_win_max_proj)}</span></div>
+    <p class="small muted" style="margin:6px 0 0">Highlighted cells differ from the highest-projection lineup. "ESPN" is ESPN's projection; "model" is the model's expected points; "Final" is what actually happened.
+      Locked players (games before Sunday 11:45 ET) count at their final score in every lineup. The model decided without knowing any results.</p></div>`;
 }
 function renderMatchup(r) {
   const replay = r.source === "replay";
@@ -281,7 +345,9 @@ function renderMatchup(r) {
       <button style="margin-left:8px" onclick="resetOverrides(); route()">Reset</button></div>` : "";
   $("#main").innerHTML = `
     <div class="chips" style="margin-top:10px">${fresh}</div>
-    ${r.locked_count ? `<div class="banner">Late swap: ${r.locked_count} starter${r.locked_count > 1 ? "s'" : "'s"} game${r.locked_count > 1 ? "s have" : " has"} already kicked off: locked at current points; the recommendation only moves the rest.</div>` : ""}
+    ${r.locked_count ? (replay
+      ? `<div class="banner">${r.locked_count} starter${r.locked_count > 1 ? "s" : ""} played before Sunday 11:45 ET (Thursday or international games), so ${r.locked_count > 1 ? "they're" : "he's"} counted at the final score in every lineup below; the model only chose the rest.</div>`
+      : `<div class="banner">Late swap: ${r.locked_count} starter${r.locked_count > 1 ? "s'" : "'s"} game${r.locked_count > 1 ? "s have" : " has"} already kicked off: locked at current points; the recommendation only moves the rest.</div>`) : ""}
     ${ov}
     <div class="tiles">
       <div class="card tile"><div class="label">Win probability, recommended lineup</div><div class="value">${pct(r.p_win)}</div><div class="sub">${esc(r.me.name)} vs ${esc(r.opponent.name)}</div></div>
@@ -292,9 +358,12 @@ function renderMatchup(r) {
       <div class="card tile"><div class="label">Expected score</div><div class="value">${pts(r.my_mean, 0)} – ${pts(r.opp_mean, 0)}</div><div class="sub">80% ranges: you ${pts(r.my_range[0], 0)}–${pts(r.my_range[2], 0)} · them ${pts(r.opp_range[0], 0)}–${pts(r.opp_range[2], 0)}</div></div>
     </div>
     <div class="card" style="margin-top:10px"><b>${changed ? `Start ${r.changes.start.map(esc).join(", ")}; bench ${r.changes.bench.map(esc).join(", ")}.` : "The highest-projection lineup is already the best bet."}</b>
-      <span class="chip" style="margin-left:6px">${r.close ? "Close call: runner-up within 1 pt" : "Clear: runner-up more than 1 pt behind"}</span>
+      <span class="chip" style="margin-left:6px">${r.p_win >= 0.99 || r.p_win <= 0.01
+        ? `Effectively decided: every lineup is about ${pct(r.p_win)} to win, so the pick goes to the most expected points`
+        : r.close ? "Close call: runner-up within 1 pt" : "Clear: runner-up more than 1 pt behind"}</span>
       ${changed ? `<div class="secondary small" style="margin-top:4px">${esc(r.reason)}</div>` : ""}</div>
-    <h2>Head to head</h2>
+    ${replay ? replayTable(r) : ""}
+    <h2>Head to head${replay ? " (model's lineup vs. their actual lineup)" : ""}</h2>
     ${rangeLegend(replay)}
     <div class="card scroll" style="margin-top:6px"><table class="h2h">
       <tr><th>${esc(r.me.name)}</th><th class="num">ESPN</th><th class="num">Median</th><th>${axisSvg(S.sc)}</th><th></th><th>${axisSvg(S.sc)}</th><th class="num">Median</th><th class="num">ESPN</th><th style="text-align:right">${esc(r.opponent.name)}</th></tr>
