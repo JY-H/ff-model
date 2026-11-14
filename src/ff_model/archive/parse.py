@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
-from .db import iso, load_raw, utcnow
+from ..db import iso, load_raw, utcnow
 
 
 def _weekly(stats, source: int, week: int):

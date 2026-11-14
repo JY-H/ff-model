@@ -45,10 +45,12 @@ The Odds API free tier: 500 credits/month. Each /odds call costs 2 (spreads + to
 
 Archiver (built)
 `uv run ff-archive status | snapshot [--odds] [--prev-week] | reparse | tick`
-launchd runs `tick` every 5 min; it snapshots only when a slot is due (see src/ff_model/slots.py).
+launchd runs `tick` every 5 min; it snapshots only when a slot is due (see src/ff_model/archive/slots.py).
 Slots: Tue 12:00 (+ last week's finals), Wed 12:00, Sat 22:00; Sun 11:45 and 15:55; international games T-90; all other kickoffs (TNF/SNF/MNF/Sat) T-60.
 pmset wakes need deploy/ff-archiver.sudoers installed in /etc/sudoers.d.
-Data: data/archive.db. raw_responses (gzipped JSON) is the source of truth; other tables come from parse.py.
+Data: data/archive.db. raw_responses (gzipped JSON) is the source of truth; other tables come from archive/parse.py.
+Layout: src/ff_model/{config,db,cli}.py are shared. sources/ holds the API clients (espn, odds). archive/ holds slots, runner, wakes, launchd, parse.
+Later phases go in sibling packages (e.g. research/, model/, optimize/, web/).
 
 Status
 Archiver live as of 2026-11-13; Week 10 is being captured.

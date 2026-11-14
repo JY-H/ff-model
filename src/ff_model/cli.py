@@ -3,23 +3,19 @@ from __future__ import annotations
 
 import argparse
 import logging
-import plistlib
 import sys
 from logging.handlers import RotatingFileHandler
-from pathlib import Path
 
-from . import archiver
-from .config import LOG_DIR, ROOT
-from .db import connect, utcnow
-
-LABEL = "com.nostrildamus.ff-archiver"
-PLIST = Path.home() / "Library/LaunchAgents" / f"{LABEL}.plist"
-
+from .archive import runner
+from .archive.launchd import install_launchd
+from .archive.parse import parse_snapshot
+from .config import LOG_DIR
+from .db import connect
 
 def _setup_logging(verbose: bool) -> None:
     LOG_DIR.mkdir(exist_ok=True)
     fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
-    fh = RotatingFileHandler(LOG_DIR / "archiver.log", maxBytes=2_000_000, backupCount=5)
+    fh = RotatingFileHandler(LOG_DIR / "runner.log", maxBytes=2_000_000, backupCount=5)
     fh.setFormatter(fmt)
     root = logging.getLogger()
     root.setLevel(logging.INFO)
@@ -30,24 +26,6 @@ def _setup_logging(verbose: bool) -> None:
         root.addHandler(sh)
     # urllib3 debug logs would include request URLs (the odds key is a query param).
     logging.getLogger("urllib3").setLevel(logging.WARNING)
-
-
-def install_launchd() -> None:
-    exe = ROOT / ".venv/bin/ff-archive"
-    plist = {
-        "Label": LABEL,
-        # caffeinate keeps the Mac awake until the snapshot finishes
-        "ProgramArguments": ["/usr/bin/caffeinate", "-i", str(exe), "tick"],
-        "WorkingDirectory": str(ROOT),
-        # Calendar intervals (unlike StartInterval) fire once on wake if missed.
-        "StartCalendarInterval": [{"Minute": m} for m in range(0, 60, 5)],
-        "StandardOutPath": str(LOG_DIR / "launchd.out.log"),
-        "StandardErrorPath": str(LOG_DIR / "launchd.err.log"),
-    }
-    PLIST.parent.mkdir(parents=True, exist_ok=True)
-    with open(PLIST, "wb") as f:
-        plistlib.dump(plist, f)
-    print(f"wrote {PLIST}\nload with:  launchctl bootstrap gui/$(id -u) {PLIST}")
 
 
 def main(argv=None) -> None:
@@ -67,22 +45,21 @@ def main(argv=None) -> None:
     _setup_logging(args.verbose or args.cmd != "tick")
 
     if args.cmd == "tick":
-        archiver.tick()
+        runner.tick()
         return
     if args.cmd == "install-launchd":
         install_launchd()
         return
     con = connect()
-    archiver.refresh_pro_schedule(con)
+    runner.refresh_pro_schedule(con)
     if args.cmd == "snapshot":
-        week = args.week or archiver.current_week(con)
-        sid = archiver.snapshot(con, week, with_odds=args.odds, prev_week=args.prev_week)
+        week = args.week or runner.current_week(con)
+        sid = runner.snapshot(con, week, with_odds=args.odds, prev_week=args.prev_week)
         r = con.execute("SELECT status, error FROM snapshots WHERE id=?", (sid,)).fetchone()
         print(f"snapshot {sid}: {r['status']}" + (f" ({r['error']})" if r["error"] else ""))
     elif args.cmd == "status":
-        print(archiver.status_report(con))
+        print(runner.status_report(con))
     elif args.cmd == "reparse":
-        from .parse import parse_snapshot
         ids = args.snapshot_ids or [r["id"] for r in con.execute("SELECT id FROM snapshots")]
         for sid in ids:
             week = con.execute("SELECT week FROM snapshots WHERE id=?", (sid,)).fetchone()["week"]

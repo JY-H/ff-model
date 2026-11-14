@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 
-from .config import ET, SEASON
+from ..config import ET, SEASON
 
 
 @dataclass(frozen=True)

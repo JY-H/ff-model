@@ -2,9 +2,9 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from ff_model import archiver
+from ff_model.archive import runner
 from ff_model.config import ET
-from ff_model.slots import week_slots
+from ff_model.archive.slots import week_slots
 
 # Week 10, 2026: TNF, London 9:30, 1pm, 4:05/4:25, SNF 8:20, MNF 8:15
 KICKS = [datetime(2026, 11, 12, 20, 15, tzinfo=ET), datetime(2026, 11, 15, 9, 30, tzinfo=ET),
@@ -42,7 +42,7 @@ def test_week_without_thursday_game():
     (datetime(2026, 11, 15, 2, 0, tzinfo=ET), "sat"),        # catch up missed Sat run
 ])
 def test_due_slot(monkeypatch, now, expect):
-    monkeypatch.setattr(archiver, "all_slots", lambda con: week_slots(10, KICKS))
-    monkeypatch.setattr(archiver, "_done", lambda con, key: False)
-    s = archiver.due_slot(None, now)
+    monkeypatch.setattr(runner, "all_slots", lambda con: week_slots(10, KICKS))
+    monkeypatch.setattr(runner, "_done", lambda con, key: False)
+    s = runner.due_slot(None, now)
     assert (s.key.split("-")[-1] if s else None) == expect

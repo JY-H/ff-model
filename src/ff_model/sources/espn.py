@@ -11,7 +11,7 @@ import time
 
 import requests
 
-from .config import ESPN_LEAGUE_URL, ESPN_SEASON_URL, espn_cookies
+from ..config import ESPN_LEAGUE_URL, ESPN_SEASON_URL, espn_cookies
 
 log = logging.getLogger(__name__)
 

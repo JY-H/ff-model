@@ -11,8 +11,8 @@ from datetime import timedelta
 
 import requests
 
-from . import config
-from .db import iso, utcnow
+from .. import config
+from ..db import iso, utcnow
 
 log = logging.getLogger(__name__)
 

@@ -1,23 +1,21 @@
-"""Snapshot runner, launchd tick, and pmset wake scheduling."""
+"""Snapshot runner and the launchd tick that decides when to run one."""
 from __future__ import annotations
 
 import fcntl
 import logging
-import subprocess
 import traceback
 from datetime import datetime, timedelta
 
-from . import espn, odds
-from .config import ET, LOG_DIR, SEASON
-from .db import connect, iso, save_raw, utcnow
+from ..config import ET, LOG_DIR, SEASON
+from ..db import connect, iso, save_raw, utcnow
+from ..sources import espn, odds
 from .parse import parse_snapshot, store_pro_games
 from .slots import Slot, all_slots
+from .wakes import schedule_wakes
 
 log = logging.getLogger("ff_model")
 
 SCHEDULE_MAX_AGE = timedelta(hours=12)
-WAKE_LEAD = timedelta(minutes=3)
-WAKE_HORIZON = timedelta(days=7)
 
 
 def refresh_pro_schedule(con, force=False) -> None:
@@ -91,26 +89,6 @@ def _done(con, key: str) -> bool:
 def due_slot(con, now: datetime) -> Slot | None:
     due = [s for s in all_slots(con) if s.at <= now < s.deadline and not _done(con, s.key)]
     return due[-1] if due else None
-
-
-def schedule_wakes(con, now: datetime) -> None:
-    for s in all_slots(con):
-        wake = s.at - WAKE_LEAD
-        if not (now < wake < now + WAKE_HORIZON):
-            continue
-        local = wake.astimezone()  # pmset takes the Mac's local time
-        stamp = local.strftime("%m/%d/%y %H:%M:%S")
-        if con.execute("SELECT 1 FROM scheduled_wakes WHERE wake_local=?", (stamp,)).fetchone():
-            continue
-        r = subprocess.run(["sudo", "-n", "/usr/bin/pmset", "schedule", "wake", stamp],
-                           capture_output=True, text=True)
-        if r.returncode != 0:
-            log.warning("could not schedule wake %s (sudoers rule missing?): %s",
-                        stamp, r.stderr.strip()[:200])
-            return
-        con.execute("INSERT INTO scheduled_wakes VALUES (?,?,?)", (stamp, s.key, iso(utcnow())))
-        con.commit()
-        log.info("scheduled wake %s for %s", stamp, s.key)
 
 
 def tick() -> None:
