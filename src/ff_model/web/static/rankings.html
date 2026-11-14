@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Player rankings</title>
+<style>
+.viz-root {
+  color-scheme: light;
+  --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #e2e1dc; --grid: #ecebe7;
+  --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77766f;
+  --me: #2a78d6; --me-soft: #cde2fb; --up: #2a78d6; --down: #e34948;
+  --warning: #fab219; --critical: #d03b3b; --chip: #eeede9; --hl: #fff5d6;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) .viz-root {
+    color-scheme: dark;
+    --surface-0: #121211; --surface-1: #1a1a19; --border: #33332f; --grid: #2a2a27;
+    --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+    --me: #3987e5; --me-soft: #1c3a5f; --up: #3987e5; --down: #e66767; --chip: #2a2a27; --hl: #3a3420;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+.viz-root { background: var(--surface-0); color: var(--text-primary); min-height: 100vh; padding: 20px 20px 48px; }
+.wrap { max-width: 1080px; margin: 0 auto; }
+h1 { font-size: 22px; margin: 0 0 4px; } h2 { font-size: 15px; margin: 0 0 8px; }
+.muted { color: var(--text-muted); } .secondary { color: var(--text-secondary); } .small { font-size: 12px; }
+.card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-top: 14px; }
+.scoring-sum { font-weight: 600; }
+details summary { cursor: pointer; color: var(--text-secondary); margin-top: 6px; }
+.rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 4px 24px; margin-top: 10px; }
+.rules h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); margin: 8px 0 2px; }
+.rules div.r { display: flex; justify-content: space-between; border-bottom: 1px dotted var(--grid); font-size: 13px; padding: 1px 0; }
+.how { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px 24px; font-size: 13px; color: var(--text-secondary); }
+.how b { color: var(--text-primary); }
+.controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 16px; }
+.seg { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface-1); }
+.seg button { border: none; border-right: 1px solid var(--border); background: none; padding: 6px 11px; font: inherit; color: var(--text-secondary); cursor: pointer; }
+.seg button:last-child { border-right: none; }
+.seg button.on { background: var(--text-primary); color: var(--surface-1); font-weight: 600; }
+select, input, button.plain { font: inherit; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-1); color: var(--text-primary); }
+button.plain { cursor: pointer; }
+.spacer { flex: 1; }
+table { width: 100%; border-collapse: collapse; margin-top: 10px; background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+th { text-align: left; font-weight: 600; font-size: 12px; color: var(--text-muted); padding: 8px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+th.sortable { cursor: pointer; } th.sorted { color: var(--text-primary); }
+td { padding: 6px 8px; border-bottom: 1px solid var(--grid); vertical-align: middle; }
+tr.row { cursor: pointer; } tr.row:hover td { background: color-mix(in srgb, var(--hl) 60%, transparent); }
+tr.row.open td { background: var(--hl); border-bottom-color: transparent; }
+tr.row.done td { opacity: .55; }
+.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rk { color: var(--text-muted); width: 44px; }
+.nm { font-weight: 600; } .sub { color: var(--text-muted); font-size: 12px; }
+.tag { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 8px; background: var(--chip); color: var(--text-secondary); margin-left: 4px; font-weight: 500; }
+.tag.q { background: color-mix(in srgb, var(--warning) 30%, transparent); color: var(--text-primary); }
+.tag.d { background: color-mix(in srgb, var(--critical) 25%, transparent); color: var(--text-primary); }
+.dsmall { font-size: 11px; color: var(--text-secondary); margin-left: 3px; }
+td.rng { width: 34%; min-width: 180px; }
+.detail td { padding: 0 12px 16px; background: var(--hl); }
+.dgrid { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(280px, 1fr); gap: 14px; }
+@media (max-width: 760px) { .dgrid { grid-template-columns: 1fr; } td.rng { min-width: 120px; } .hide-sm { display: none; } }
+.pcard { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+.ptitle { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); margin-bottom: 6px; font-weight: 600; }
+.kv { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 6px 12px; font-size: 12px; color: var(--text-muted); }
+.kv b { display: block; font-size: 15px; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.why { border-top: 1px solid var(--grid); padding: 6px 0; } .why:first-of-type { border-top: none; }
+.why .h { display: flex; justify-content: space-between; gap: 8px; font-weight: 600; font-size: 13px; }
+.why .eff { font-variant-numeric: tabular-nums; padding: 0 6px; border-radius: 6px; font-size: 12px; white-space: nowrap; }
+.why p { margin: 2px 0; font-size: 12.5px; color: var(--text-secondary); }
+.why p.ev { color: var(--text-muted); font-style: italic; }
+.legend { display: flex; gap: 14px; font-size: 11px; color: var(--text-muted); margin-top: 4px; flex-wrap: wrap; align-items: center; }
+.stat { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--text-secondary); }
+.stat b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--text-primary); color: var(--surface-1); padding: 8px 14px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+.toast.on { opacity: 1; }
+.foot { margin-top: 18px; font-size: 12px; color: var(--text-muted); }
+</style>
+</head>
+<body>
+<div class="viz-root"><div class="wrap" id="app"></div><div class="toast" id="toast"></div></div>
+<script>
+const D = /*DATA*/null;
+const POS = ["ALL", "QB", "RB", "WR", "TE", "FLEX", "K", "D/ST"];
+const SORTS = {mean: "Expected", proj: "ESPN", p50: "Typical", p10: "Floor", p90: "Ceiling", twenty: "20+ chance", dud: "Dud chance"};
+const T = D.taus, I = t => T.indexOf(t);
+const S = {pos: "ALL", sort: "mean", q: "", open: null};
+try { const h = location.hash.slice(1).toUpperCase().replace("DST", "D/ST"); if (POS.includes(h)) S.pos = h; } catch (e) {}
+
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const pts = v => v == null ? "–" : (Math.round(v * 10) / 10).toFixed(1);
+const pct = v => v == null ? "–" : v < 0.005 ? "<1%" : v > 0.995 ? ">99%" : Math.round(v * 100) + "%";
+const sgn = v => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(1);
+const tint = (d, scale = 2.5) => d == null || Math.abs(d) < 0.1 ? "" :
+  `background: color-mix(in srgb, ${d > 0 ? "var(--up)" : "var(--down)"} ${Math.round(12 + 33 * Math.min(1, Math.abs(d) / scale))}%, transparent);`;
+const qv = (p, t) => p.q[I(t)];
+const val = (p, k) => k === "mean" ? p.mean : k === "proj" ? p.proj : k === "twenty" ? p.chance.twenty : k === "dud" ? p.chance.dud : qv(p, +k.slice(1) / 100);
+const kick = p => { if (!p.kickoff) return ""; const d = new Date(p.kickoff);
+  return d.toLocaleString(undefined, {weekday: "short", hour: "numeric", minute: "2-digit"}); };
+
+function statusTag(p) {
+  if (!p.status || p.status === "none") return "";
+  const cls = p.status === "Questionable" ? "q" : "d";
+  return `<span class="tag ${cls}" title="${esc(p.injury || "")}">${esc(p.status === "Questionable" ? "Q" : p.status === "Doubtful" ? "D" : p.status)}</span>`;
+}
+
+function rangeSvg(p, lo, hi) {
+  const W = 300, H = 22, x = v => 4 + (W - 8) * (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo);
+  const a = qv(p, .1), b = qv(p, .25), m = qv(p, .5), c = qv(p, .75), d = qv(p, .9);
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="none" role="img" aria-label="80% range ${pts(a)} to ${pts(d)}">
+    <line x1="${x(a)}" x2="${x(d)}" y1="11" y2="11" stroke="var(--me)" stroke-width="2" stroke-linecap="round" opacity=".55"/>
+    <rect x="${x(b)}" y="5" width="${Math.max(1, x(c) - x(b))}" height="12" rx="3" fill="var(--me-soft)" stroke="var(--me)" stroke-width="1"/>
+    <line x1="${x(m)}" x2="${x(m)}" y1="4" y2="18" stroke="var(--me)" stroke-width="2.5"/>
+    <line x1="${x(p.proj)}" x2="${x(p.proj)}" y1="2" y2="20" stroke="var(--text-primary)" stroke-width="1.2" stroke-dasharray="2 2"/></svg>`;
+}
+
+function distSvg(p) {
+  // CDF through the model's percentiles (linear between them, short linear tails), lightly smoothed
+  const ks = T.map((t, i) => [t, p.q[i]]), n = ks.length;
+  const lo0 = ks[0][1] - (ks[1][1] - ks[0][1]) * ks[0][0] / (ks[1][0] - ks[0][0]);
+  const hi0 = ks[n - 1][1] + (ks[n - 1][1] - ks[n - 2][1]) * (1 - ks[n - 1][0]) / (ks[n - 1][0] - ks[n - 2][0]);
+  const P = [[0, lo0], ...ks, [1, hi0]];
+  const F = v => { if (v <= P[0][1]) return 0; for (let i = 1; i < P.length; i++) { const [t0, v0] = P[i - 1], [t1, v1] = P[i];
+      if (v <= v1) return v1 > v0 ? t0 + (t1 - t0) * (v - v0) / (v1 - v0) : t1; } return 1; };
+  const lo = Math.floor(Math.min(0, lo0)), hi = Math.ceil(Math.max(hi0, p.proj + 5, 10));
+  const step = 0.5, raw = []; for (let v = lo; v < hi; v += step) raw.push({a: v, m: F(v + step) - F(v)});
+  const sig = Math.max(0.75, (hi - lo) / 60), w = Math.ceil(3 * sig / step);
+  const sm = raw.map((r, i) => { let s = 0, z = 0; for (let j = -w; j <= w; j++) { const k = i + j; if (k < 0 || k >= raw.length) continue;
+      const g = Math.exp(-0.5 * (j * step / sig) ** 2); s += g * raw[k].m; z += g; } return {a: r.a, m: s / z}; });
+  const bins = []; for (let i = 0; i < sm.length; i += 2) bins.push({a: sm[i].a, b: sm[i].a + 1, m: sm[i].m + (sm[i + 1] ? sm[i + 1].m : 0)});
+  const W = 500, H = 160, padB = 22, x = v => 8 + (W - 16) * (v - lo) / (hi - lo);
+  const mmax = Math.max(...bins.map(b => b.m)), y = m => (H - padB) * (1 - m / mmax);
+  const p10 = qv(p, .1), p90 = qv(p, .9), inner = b => b.a >= p10 - 0.5 && b.b <= p90 + 0.5;
+  const bars = bins.map(b => `<rect x="${x(b.a) + 0.5}" y="${y(b.m)}" width="${Math.max(1, x(b.b) - x(b.a) - 1)}" height="${(H - padB) - y(b.m)}" rx="1" fill="${inner(b) ? "var(--me)" : "var(--me-soft)"}"/>`).join("");
+  const ticks = [], ts = hi - lo > 40 ? 10 : 5; for (let v = Math.ceil(lo / ts) * ts; v <= hi; v += ts) ticks.push(`<text x="${x(v)}" y="${H - 6}" font-size="10" text-anchor="middle" fill="var(--text-muted)">${v}</text>`);
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Distribution of ${esc(p.name)}'s points">${bars}
+    <line x1="8" x2="${W - 8}" y1="${H - padB}" y2="${H - padB}" stroke="var(--border)"/>${ticks.join("")}
+    <line x1="${x(p.proj)}" x2="${x(p.proj)}" y1="14" y2="${H - padB}" stroke="var(--text-primary)" stroke-width="1.5" stroke-dasharray="3 3"/>
+    <text x="${x(p.proj) + 4}" y="11" font-size="11" fill="var(--text-secondary)">ESPN ${pts(p.proj)}</text></svg>
+    <div class="legend"><span><svg width="12" height="12"><rect width="12" height="12" fill="var(--me)"/></svg> 80% range (10th–90th pct)</span>
+      <span><svg width="12" height="12"><rect width="12" height="12" fill="var(--me-soft)"/></svg> tails</span><span>bar height = chance of landing in that 1-point band</span></div>`;
+}
+
+function takeaway(p) {
+  const names = {weather: "weather", spread: "the betting line", injury: "the injury report", lines: "missing linemen/DBs"};
+  const drv = Object.entries(p.effects).filter(([, v]) => Math.abs(v) >= 0.3).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).map(([k, v]) => `${names[k]} (${sgn(v)})`);
+  const d = p.mean - p.proj;
+  return `Typical week about <b>${pts(qv(p, .5))}</b>; 80% of the time <b>${pts(qv(p, .1))}–${pts(qv(p, .9))}</b>. `
+    + `${pct(p.chance.dud)} chance of a dud (under 5), ${pct(p.chance.twenty)} chance of 20+. `
+    + (Math.abs(d) < 0.3 ? `Expectation (${pts(p.mean)}) is in line with ESPN's ${pts(p.proj)}.`
+       : `Expects <b>${pts(p.mean)}</b> vs ESPN's ${pts(p.proj)}${drv.length ? `, mainly because of ${drv.join(" and ")}` : ""}.`);
+}
+
+function detail(p) {
+  const why = p.explain.map(e => {
+    const lab = e.factor === "shape" ? "" : e.factor === "teammates" ? "info only" : Math.abs(e.effect) < 0.05 ? "no change" : sgn(e.effect);
+    const st = ["shape", "teammates"].includes(e.factor) ? "" : tint(e.effect);
+    return `<div class="why"><div class="h"><span>${esc(e.headline)}</span>${lab ? `<span class="eff" style="${st}">${lab}</span>` : ""}</div>
+      ${e.details.map(t => `<p>${esc(t)}</p>`).join("")}${(e.evidence || []).map(t => `<p class="ev">${esc(t)}</p>`).join("")}</div>`;
+  }).join("");
+  const sl = Object.entries(p.statline);
+  const props = p.props.map(x => `<div>${esc(x.market)} ${x.line != null ? esc(x.outcome) + " " + x.line : ""}<b>${pct(x.implied)}</b></div>`).join("");
+  return `<tr class="detail"><td colspan="9"><div class="dgrid">
+    <div style="display:grid;gap:12px;align-content:start">
+      <div class="pcard"><div style="font-size:13.5px">${takeaway(p)}</div></div>
+      <div class="pcard"><div class="ptitle">Range of outcomes</div>${distSvg(p)}</div>
+      <div class="pcard"><div class="ptitle">Key numbers</div><div class="kv">
+        <div>ESPN<b>${pts(p.proj)}</b></div><div>Expected<b>${pts(p.mean)}</b></div><div>Typical (median)<b>${pts(qv(p, .5))}</b></div>
+        <div>Floor (10th)<b>${pts(qv(p, .1))}</b></div><div>Ceiling (90th)<b>${pts(qv(p, .9))}</b></div><div>Beats ESPN<b>${pct(p.chance.beat_proj)}</b></div>
+        <div>Under 5<b>${pct(p.chance.dud)}</b></div><div>20+<b>${pct(p.chance.twenty)}</b></div></div></div>
+      ${sl.length ? `<div class="pcard"><div class="ptitle">ESPN's projected stat line</div><div class="stat">${sl.map(([k, v]) => `<span>${esc(k)} <b>${v}</b></span>`).join("")}</div></div>` : ""}
+      ${props ? `<div class="pcard"><div class="ptitle">Sportsbook props (implied chance)</div><div class="kv">${props}</div></div>` : ""}
+    </div>
+    <div class="pcard" style="align-self:start"><div class="ptitle">Why: what moved the expectation</div>${why}
+      <p class="small muted" style="margin:8px 0 0">Effects are on expected points and add up: expected = ESPN + listed effects.</p></div>
+  </div></td></tr>`;
+}
+
+function shown() {
+  const q = S.q.trim().toLowerCase();
+  let ps = D.players.filter(p => S.pos === "ALL" || (S.pos === "FLEX" ? ["RB", "WR", "TE"].includes(p.pos) : p.pos === S.pos));
+  if (q) ps = ps.filter(p => (p.name + " " + p.team).toLowerCase().includes(q));
+  const asc = S.sort === "dud";
+  return ps.slice().sort((a, b) => asc ? val(a, S.sort) - val(b, S.sort) : val(b, S.sort) - val(a, S.sort));
+}
+
+function render() {
+  const ps = shown(), all = D.players.filter(p => S.pos === "ALL" || (S.pos === "FLEX" ? ["RB", "WR", "TE"].includes(p.pos) : p.pos === S.pos));
+  const lo = 0, hi = Math.max(10, Math.ceil(Math.max(...all.map(p => qv(p, .9))) / 5) * 5);
+  const rank = {}, posRank = {}, seen = {};
+  all.slice().sort((a, b) => b.mean - a.mean).forEach((p, i) => { rank[p.id] = i + 1; posRank[p.id] = seen[p.pos] = (seen[p.pos] || 0) + 1; });
+  const th = (k, lab, cls = "num") => `<th class="${cls} sortable ${S.sort === k ? "sorted" : ""}" data-sort="${k}">${lab}${S.sort === k ? (k === "dud" ? " ↑" : " ↓") : ""}</th>`;
+  const rows = ps.map(p => {
+    const d = p.mean - p.proj, open = S.open === p.id;
+    return `<tr class="row ${open ? "open" : ""} ${p.locked ? "done" : ""}" data-id="${p.id}">
+      <td class="num rk">${rank[p.id]}${S.pos === "ALL" || S.pos === "FLEX" ? `<div class="sub">${p.pos}${posRank[p.id]}</div>` : ""}</td>
+      <td><span class="nm">${esc(p.name)}</span>${statusTag(p)}${p.locked ? `<span class="tag">played</span>` : ""}
+        <div class="sub">${esc(p.pos)} · ${esc(p.team)} vs ${esc(p.opp)}<span class="hide-sm"> · ${kick(p)}</span></div></td>
+      <td class="num">${pts(p.proj)}</td>
+      <td class="num" style="${tint(d)}">${pts(p.mean)}<span class="dsmall">${Math.abs(d) < 0.1 ? "±0" : sgn(d)}</span></td>
+      <td class="rng">${rangeSvg(p, lo, hi)}</td>
+      <td class="num hide-sm">${pts(qv(p, .1))}–${pts(qv(p, .9))}</td>
+      <td class="num hide-sm">${pct(p.chance.twenty)}</td>
+      <td class="num hide-sm">${pct(p.chance.dud)}</td>
+      <td class="num muted" style="width:20px">${open ? "▾" : "▸"}</td></tr>${open ? detail(p) : ""}`;
+  }).join("");
+  const ax = []; for (let v = lo; v <= hi; v += hi > 40 ? 10 : 5) ax.push(v);
+  document.getElementById("tbl").innerHTML = `<thead><tr>
+      <th class="num">Rank</th><th>Player</th>${th("proj", "ESPN")}${th("mean", "Expected")}
+      <th>Range <span class="muted" style="font-weight:400">(0–${hi} pts)</span></th>${th("p10", "Floor–ceiling", "num hide-sm")}${th("twenty", "20+", "num hide-sm")}${th("dud", "Under 5", "num hide-sm")}<th></th></tr></thead>
+    <tbody>${rows || `<tr><td colspan="9" class="muted">No players match.</td></tr>`}</tbody>`;
+  document.querySelectorAll(".seg button").forEach(b => b.classList.toggle("on", b.dataset.pos === S.pos));
+  document.getElementById("sortsel").value = S.sort;
+  document.getElementById("count").textContent = `${ps.length} players`;
+}
+
+function csv() {
+  const head = ["rank", "name", "pos", "team", "opp", "status", "espn", "expected", "p10", "p25", "median", "p75", "p90", "chance_20plus", "chance_under5", "weather", "spread", "injury", "lines"];
+  const ps = shown(), lines = [head.join(",")];
+  ps.forEach((p, i) => lines.push([i + 1, `"${p.name.replace(/"/g, '""')}"`, p.pos, p.team, p.opp, p.status === "none" ? "" : p.status, pts(p.proj), pts(p.mean),
+    ...[.1, .25, .5, .75, .9].map(t => pts(qv(p, t))), p.chance.twenty.toFixed(3), p.chance.dud.toFixed(3),
+    ...["weather", "spread", "injury", "lines"].map(k => p.effects[k].toFixed(2))].join(",")));
+  return lines.join("\n");
+}
+function toast(msg) { const t = document.getElementById("toast"); t.textContent = msg; t.classList.add("on"); setTimeout(() => t.classList.remove("on"), 1800); }
+
+function init() {
+  const sc = D.scoring, asof = D.as_of ? new Date(D.as_of) : null;
+  const rule = r => `<div class="r"><span>${esc(r.what)}</span><b>${r.pts > 0 ? "+" : ""}${r.pts}</b></div>`;
+  document.getElementById("app").innerHTML = `
+    <h1>Week ${D.week} player rankings · ${D.season}</h1>
+    <div class="secondary">Every projected player, ranked by expected points, with a full range of outcomes and the reasons behind each adjustment.
+      ${asof ? `Data as of <b>${asof.toLocaleString(undefined, {weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short"})}</b>.` : ""}</div>
+    <div class="card"><h2>Scoring</h2><div class="scoring-sum">${esc(sc.summary)}</div>
+      <details><summary>Full scoring rules</summary><div class="rules">
+        <div><h3>Offense &amp; kicking</h3>${sc.offense.map(rule).join("")}</div>
+        <div><h3>D/ST plays</h3>${sc.dst.map(rule).join("")}</div>
+        <div><h3>D/ST points allowed</h3>${sc.points_allowed.map(rule).join("")}<h3>D/ST yards allowed</h3>${sc.yards_allowed.map(rule).join("")}</div>
+      </div><p class="small muted">${esc(sc.note)}</p></details></div>
+    <div class="card how">
+      <div><b>ESPN</b> is ESPN's projection, rescored for these rules. It's used as the forecast of each player's average.</div>
+      <div><b>Expected</b> = ESPN + context adjustments (weather, betting line, injury report and practice, missing linemen/DBs). Each adjustment is kept only if it beat ESPN on 2019–2025 games. Blue = above ESPN, red = below.</div>
+      <div><b>Range</b>: the line spans the 10th to 90th percentile, the box the middle 50%, the solid tick the typical (median) week. The dashed tick is ESPN's number. Medians often sit below ESPN because touchdowns make scoring lopsided.</div>
+      <div><b>20+ / Under 5</b>: the chance of a big week or a dud. Click any player for the full distribution and the why.</div>
+    </div>
+    <div class="controls">
+      <div class="seg">${POS.map(p => `<button data-pos="${p}">${p === "ALL" ? "All" : p}</button>`).join("")}</div>
+      <input id="search" type="search" placeholder="Search player or team" style="min-width:180px">
+      <label class="small secondary">Sort <select id="sortsel">${Object.entries(SORTS).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></label>
+      <span class="spacer"></span><span id="count" class="small muted"></span>
+      <button class="plain" id="copy">Copy as CSV</button>
+    </div>
+    <table id="tbl"></table>
+    <div class="foot">Distributions come from quantile regressions fit on 2019–2025 ESPN projections against actual results, so each position's spread and skew reflect how far ESPN's projections have historically missed.
+      Calibration on 2024–2025 and 2026 so far: about 10% of outcomes landed below the 10th percentile and about 10% above the 90th.
+      "Played" rows are games that had already kicked off when the data was taken. Players listed Out or projected under 1 point are left off.</div>`;
+  document.querySelectorAll(".seg button").forEach(b => b.onclick = () => { S.pos = b.dataset.pos; S.open = null;
+    try { history.replaceState(null, "", "#" + (S.pos === "D/ST" ? "DST" : S.pos).toLowerCase()); } catch (e) {} render(); });
+  document.getElementById("search").oninput = e => { S.q = e.target.value; render(); };
+  document.getElementById("sortsel").onchange = e => { S.sort = e.target.value; render(); };
+  document.getElementById("copy").onclick = async () => {
+    try { await navigator.clipboard.writeText(csv()); toast("Copied " + shown().length + " rows as CSV"); } catch (e) { toast("Copy was blocked by the browser"); } };
+  document.getElementById("tbl").onclick = e => {
+    const h = e.target.closest("th[data-sort]"); if (h) { S.sort = h.dataset.sort; render(); return; }
+    const r = e.target.closest("tr.row"); if (r) { const id = +r.dataset.id; S.open = S.open === id ? null : id; render(); } };
+  render();
+}
+init();
+</script>
+</body>
+</html>

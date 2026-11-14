@@ -61,6 +61,8 @@ def main(argv=None) -> None:
     rc = sub.add_parser("recommend", help="best lineup by P(win) for my matchup")
     rc.add_argument("--snapshot", type=int, help="default: latest snapshot")
     rc.add_argument("--draws", type=int, default=20000)
+    rk = sub.add_parser("rankings", help="write a shareable all-player rankings page (no league details)")
+    rk.add_argument("--snapshot", type=int, help="default: latest snapshot")
     np_ = sub.add_parser("nflverse", help="download nflverse history (current season refreshed)")
     np_.add_argument("--seasons", type=int, nargs="*", help="default: 2012 through this season")
     np_.add_argument("--force", action="store_true", help="re-download completed seasons too")
@@ -106,6 +108,10 @@ def main(argv=None) -> None:
     if args.cmd == "recommend":
         from .model.optimize import format_text, recommend
         print(format_text(recommend(args.snapshot, n=args.draws)))
+        return
+    if args.cmd == "rankings":
+        from .model.rankings import write
+        print(write(args.snapshot))
         return
     if args.cmd == "nflverse":
         import polars as pl
