@@ -53,8 +53,8 @@ td { padding: 6px; border-bottom: 1px solid var(--grid); vertical-align: middle;
 .clickable { cursor: pointer; } .clickable:hover { background: var(--grid); }
 .h2h td.slot { text-align: center; font-weight: 600; color: var(--text-secondary); font-size: 12px; background: var(--surface-0); width: 52px; }
 .h2h td.r { text-align: right; } .h2h .rec { box-shadow: inset 3px 0 0 var(--me); }
-.three tr.diffrow td { background: var(--hl); } .ctr { text-align: center; }
-.delta { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; color: var(--text-secondary); margin-left: 4px; white-space: nowrap; }
+.three tr.diffrow td:not([style*="background"]) { background: var(--hl); } .ctr { text-align: center; }
+.dsmall { font-size: 11px; color: var(--text-secondary); margin-left: 3px; }
 .legend { display: flex; gap: 14px; font-size: 12px; color: var(--text-secondary); align-items: center; flex-wrap: wrap; }
 .tip { position: fixed; pointer-events: none; background: var(--surface-1); color: var(--text-primary); border: 1px solid var(--border);
   border-radius: 8px; padding: 8px 10px; font-size: 12px; box-shadow: 0 4px 14px rgba(0,0,0,.15); display: none; z-index: 30; max-width: 320px; }
@@ -111,16 +111,17 @@ const showTip = (e, h) => { tip.innerHTML = h; tip.style.display = "block";
   tip.style.top = Math.min(e.clientY + 14, innerHeight - tip.offsetHeight - 8) + "px"; };
 const hideTip = () => tip.style.display = "none";
 const SLOTS = ["QB", "RB", "RB", "WR", "WR", "TE", "FLEX", "D/ST", "K"];
-// Diverging bar for "model vs ESPN": blue when the model is higher, red when lower; the signed
-// number is always printed (text in text color), so the bar is never the only cue.
-function delta(d, scale = 2.5) {
-  if (d == null || isNaN(d)) return "";
-  if (Math.abs(d) < 0.1) return `<span class="delta muted">±0</span>`;
-  const W = 60, mid = W / 2, w = Math.max(4, Math.min(1, Math.abs(d) / scale) * (mid - 1));
-  return `<span class="delta"><svg width="${W}" height="12" aria-hidden="true"><line x1="${mid}" x2="${mid}" y1="0" y2="12" stroke="var(--text-muted)"/>
-    <rect x="${d > 0 ? mid + 1 : mid - 1 - w}" y="2" width="${w}" height="8" rx="2" fill="${d > 0 ? "var(--win)" : "var(--loss)"}"/></svg>${sgn(d)}</span>`;
+// Model vs ESPN: tint the whole cell (blue = model above ESPN, red = below; stronger = bigger gap).
+// The signed difference is always written too, so color is never the only cue.
+function tint(d, scale = 2.5) {
+  if (d == null || isNaN(d) || Math.abs(d) < 0.1) return "";
+  const a = Math.round(12 + 33 * Math.min(1, Math.abs(d) / scale));
+  return `background: color-mix(in srgb, ${d > 0 ? "var(--win)" : "var(--loss)"} ${a}%, transparent);`;
 }
-const modelCell = p => p.locked || p.unavailable ? "–" : `${pts(p.model_mean)} ${delta(p.model_mean - p.proj)}`;
+const signed = d => d == null || isNaN(d) ? "" : Math.abs(d) < 0.1 ? `<span class="dsmall">±0</span>` : `<span class="dsmall">${sgn(d)}</span>`;
+const modelTd = p => p.locked || p.unavailable ? `<td class="num">–</td>`
+  : `<td class="num" style="${tint(p.model_mean - p.proj)}">${pts(p.model_mean)} ${signed(p.model_mean - p.proj)}</td>`;
+const effectTd = d => `<td class="num" style="${tint(d)}">${Math.abs(d) < 0.1 ? "±0" : sgn(d)}</td>`;
 
 const S = {weeks: [], teams: [], me: null, week: null, team: null, snapshot: null, tab: "matchup", report: null,
            overrides: {force_in: [], force_out: [], proj_delta: {}}};
@@ -228,7 +229,7 @@ function rangeLegend(replay) {
     line 10th–90th percentile (80% chance) · box 25th–75th · tick median</span>
     <span><svg width="12" height="14"><path d="M 6 2 l 4.5 5 l -4.5 5 l -4.5 -5 z" fill="var(--text-primary)"/></svg> ESPN projection</span>
     ${replay ? `<span><svg width="14" height="14"><line x1="7" x2="7" y1="1" y2="13" stroke="var(--text-primary)" stroke-width="1.5" stroke-dasharray="2 2"/></svg> actual final score</span>` : ""}
-    <span>Model = the model's expected points; ${delta(1.5)} / ${delta(-1.5)} model above / below ESPN</span>
+    <span>Model = the model's expected points; cell <span style="padding:0 6px;border-radius:4px;${tint(1.5)}">blue</span> = above ESPN, <span style="padding:0 6px;border-radius:4px;${tint(-1.5)}">red</span> = below (stronger = bigger gap)</span>
     <span>Click any player for details</span></div>`;
 }
 function bindRanges(rows) {
@@ -270,7 +271,7 @@ function cell(p, side, align) {
   const name = `<td class="clickable ${align}" data-player="${p.id}"><div class="pname">${esc(p.name)} ${finPill}</div>
     <div class="pmeta">${esc(p.pos || "")} · ${esc(p.team || "")}${p.opp ? " vs " + esc(p.opp) : " · bye"} · ${p.locked ? "played" : when(p.kickoff)}${fin}</div>
     <div class="chips" style="${align === "r" ? "justify-content:flex-end;" : ""}margin-top:2px">${statusChips(p)}</div></td>`;
-  const e = `<td class="num">${pts(p.proj)}</td>`, m = `<td class="num">${modelCell(p)}</td>`;
+  const e = `<td class="num">${pts(p.proj)}</td>`, m = modelTd(p);
   const rg = `<td class="clickable" data-player="${p.id}">${rangeSvg(p, S.sc, side)}</td>`;
   return side === "me" ? name + e + m + rg : rg + m + e + name;
 }
@@ -278,7 +279,7 @@ function benchTable(rows, side, title) {
   return `<div class="card scroll"><div class="secondary small">${esc(title)}</div><table>
     <tr><th>Player</th><th class="num">ESPN</th><th class="num">Model</th><th>${axisSvg(S.sc)}</th>${side === "me" ? '<th class="num">P(win) if started</th>' : ""}</tr>
     ${rows.map(p => `<tr><td class="clickable" data-player="${p.id}"><div class="pname">${esc(p.name)}</div><div class="pmeta">${esc(p.pos || "")} · ${esc(p.team || "")}${p.opp ? " vs " + esc(p.opp) : " · bye"}${p.final != null ? ` · final ${pts(p.final)}` : ""}${p.started_actually ? " · they started him" : ""}</div><div class="chips">${statusChips(p)}</div></td>
-      <td class="num">${pts(p.proj)}</td><td class="num">${modelCell(p)}</td><td class="clickable" data-player="${p.id}">${rangeSvg(p, S.sc, side)}</td>
+      <td class="num">${pts(p.proj)}</td>${modelTd(p)}<td class="clickable" data-player="${p.id}">${rangeSvg(p, S.sc, side)}</td>
       ${side === "me" ? `<td class="num">${p.pwin_if_started != null ? pct(p.pwin_if_started, 1) : "–"}</td>` : ""}</tr>`).join("")}</table></div>`;
 }
 function replayTable(r) {
@@ -302,7 +303,7 @@ function replayTable(r) {
       ${rows.map(p => { const a = !!inMax(p), b = !!inModel(p), c = !!inStarted(p), same = a === b && b === c;
         return `<tr class="${same ? "" : "diffrow"} clickable" data-player="${p.id}">
           <td><span class="pname">${esc(p.name)}</span> <span class="pmeta">${esc(p.pos || "")} · ${esc(p.team || "")}${p.locked ? " · played Thu/intl" : ""}</span>${why(p)}</td>
-          <td class="num">${pts(p.proj)}</td><td class="num">${modelCell(p)}</td><td class="num"><b>${pts(fin(p))}</b></td>
+          <td class="num">${pts(p.proj)}</td>${modelTd(p)}<td class="num"><b>${pts(fin(p))}</b></td>
           <td class="ctr">${mark(a)}</td><td class="ctr">${mark(b)}</td><td class="ctr">${mark(c)}</td></tr>`; }).join("")}
     </table>
     <table style="margin-top:10px"><tr><th>Lineup</th><th class="num">ESPN projected</th><th class="num">Model expected</th><th class="num">Final</th><th>Result</th></tr>
@@ -310,7 +311,7 @@ function replayTable(r) {
         `<tr><td>${lab}</td><td class="num">${pts(T[k].espn)}</td><td class="num">${pts(T[k].model)}</td><td class="num"><b>${pts(v)}</b></td><td>${res(v)}</td></tr>`).join("")}
       <tr class="muted"><td>${esc(r.opponent.name)}</td><td class="num">${pts(T.opponent.espn)}</td><td></td><td class="num">${pts(o.opponent)}</td><td></td></tr>
     </table>
-    <p class="small muted" style="margin:6px 0 0">Highlighted rows: the lineups disagree about that player. ESPN = ESPN's projection; Model = the model's expected points, with a blue (higher) or red (lower) bar for its difference from ESPN; Final = actual.
+    <p class="small muted" style="margin:6px 0 0">Highlighted rows: the lineups disagree about that player. ESPN = ESPN's projection; Model = the model's expected points, tinted blue when above ESPN and red when below; Final = actual.
       RB/WR/TE in the FLEX count the same as in their own slot. The model decided without knowing any results.</p></div>`;
 }
 function renderMatchup(r) {
@@ -471,7 +472,7 @@ function renderContext(c, r) {
       <td class="small">${p.spread != null ? (p.spread >= 0 ? `fav ${pts(p.spread)}` : `dog ${pts(-p.spread)}`) : "–"}${p.total ? ` · O/U ${pts(p.total)}` : ""}</td>
       <td class="small">${esc(inj) || '<span class="muted">–</span>'}</td>
       <td class="small">${lines ? esc(lines.details.filter(d => !d.startsWith("Starters =")).join(" ")) : '<span class="muted">–</span>'}</td>
-      <td class="num">${delta(total)}</td></tr>`;
+      ${effectTd(total)}</tr>`;
   };
   const all = [...mine.map(p => [p, "You"]), ...theirs.map(p => [p, "Opp"])]
     .sort((a, b) => (starters.has(b[0].id) - starters.has(a[0].id)) || (a[0].kickoff || "").localeCompare(b[0].kickoff || ""));
