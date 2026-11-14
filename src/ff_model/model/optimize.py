@@ -88,33 +88,11 @@ def recommend(snapshot_id: int | None = None, n: int = 20000, seed: int = 7) -> 
     opp_start = _opponent_starters(opp, counts)
 
     mine = df.filter(pl.col("team_id") == MY_TEAM_ID)
-    my_locked = mine.filter(pl.col("locked") & (pl.col("slot") != BENCH) & (pl.col("slot") != IR))
-    free = mine.filter(~pl.col("locked") & ~pl.col("unavailable"))
-    open_slots = dict(counts)
-    for s in my_locked["slot"]:
-        open_slots[SLOT[s]] -= 1
-    lineups = _enumerate(free, open_slots)
-
-    # simulate every unlocked player on either roster who could score for us or them
-    sim_ids = sorted(set(free["player_id"]) | set(opp_start.filter(~pl.col("locked"))["player_id"]))
-    S = df.filter(pl.col("player_id").is_in(sim_ids)).unique("player_id").sort("player_id")
-    col = {p: i for i, p in enumerate(S["player_id"])}
-    teams = S["team"].to_list()
-    sides = [0 if t == min(t, o) else 1 for t, o in zip(teams, S["opp"].to_list())]
-    D = draw(q[[df["player_id"].to_list().index(p) for p in S["player_id"]]], S["game"].to_list(),
-             S["role"].to_list(), sides, C.load(), n=n, rng=np.random.default_rng(seed))
-
-    fixed_me = float(my_locked["actual"].fill_null(0).sum())
-    opp_total = float(opp_start.filter(pl.col("locked"))["actual"].fill_null(0).sum()) + \
-        D[:, [col[p] for p in opp_start.filter(~pl.col("locked"))["player_id"]]].sum(axis=1)
-    L = np.zeros((len(lineups), len(col)))
-    for k, lu in enumerate(lineups):
-        L[k, [col[p] for _, p in lu]] = 1.0
-    my_totals, diff, pwin = score_lineups(D, L, fixed_me, opp_total)
-
-    proj = dict(zip(free["player_id"], free["proj"]))
-    mp = int(np.argmax([sum(proj[p] for _, p in lu) for lu in lineups]))
-    best = int(np.argmax(pwin))
+    my_locked = mine.filter(pl.col("locked") & ~pl.col("slot").is_in([BENCH, IR]))
+    q_of = dict(zip(df["player_id"].to_list(), q))
+    dec = decide(mine, opp_start, q_of, counts, C.load(), n=n, seed=seed)
+    lineups, pwin, best, mp, diff = dec.lineups, dec.pwin, dec.best, dec.max_proj, dec.diff
+    my_totals, opp_total = dec.my_totals, dec.opp_total
     order = np.argsort(-pwin)
 
     info = {r["player_id"]: r for r in df.iter_rows(named=True)}
@@ -123,10 +101,12 @@ def recommend(snapshot_id: int | None = None, n: int = 20000, seed: int = 7) -> 
         rows = [dict(slot=SLOT[r["slot"]], name=r["name"], pos=r["pos"], proj=r["proj"], p10=r["p10"], p50=r["p50"],
                      p90=r["p90"], locked=True, actual=r["actual"]) for r in my_locked.iter_rows(named=True)]
         rows += [dict(slot=s, name=info[p]["name"], pos=info[p]["pos"], proj=info[p]["proj"], p10=info[p]["p10"],
-                      p50=info[p]["p50"], p90=info[p]["p90"], locked=False) for s, p in lu]
+                      p50=info[p]["p50"], p90=info[p]["p90"], locked=False) if p in info else
+                 dict(slot=s, name="(empty)", pos=s, proj=0.0, p10=0.0, p50=0.0, p90=0.0, locked=False) for s, p in lu]
         return rows
 
-    b_ids, m_ids = {p for _, p in lineups[best]}, {p for _, p in lineups[mp]}
+    b_ids = {p for _, p in lineups[best] if p in info}
+    m_ids = {p for _, p in lineups[mp] if p in info}
     ins, outs = b_ids - m_ids, m_ids - b_ids
     changes = [f"start {info[p]['name']} ({info[p]['pos']}, proj {info[p]['proj']:.1f})" for p in ins] + \
               [f"bench {info[p]['name']} ({info[p]['pos']}, proj {info[p]['proj']:.1f})" for p in outs]
@@ -140,7 +120,58 @@ def recommend(snapshot_id: int | None = None, n: int = 20000, seed: int = 7) -> 
         snapshot_id=sid, week=week, opponent_team_id=opp_id, best=describe(lineups[best]), p_win=float(pwin[best]),
         p_win_max_proj=float(pwin[mp]), max_proj_lineup=describe(lineups[mp]), changes=changes, close=bool(close),
         reason=reason, my_mean=float(my_totals[:, best].mean()), opp_mean=float(opp_total.mean()),
-        alternatives=[(float(pwin[k]), [info[p]["name"] for _, p in lineups[k]]) for k in order[1:4]])
+        alternatives=[(float(pwin[k]), [info[p]["name"] if p in info else "(empty)" for _, p in lineups[k]])
+                      for k in order[1:4]])
+
+
+@dataclass
+class Decision:
+    lineups: list                    # candidate lineups [(slot, player_id)]
+    pwin: np.ndarray                 # P(win) per lineup
+    best: int
+    max_proj: int
+    diff: np.ndarray                 # (draws, lineups) margin
+    my_totals: np.ndarray
+    opp_total: np.ndarray
+    fixed_me: float
+    D: np.ndarray = None             # (draws, simulated players)
+    col: dict = None                 # player_id -> column of D
+
+
+def decide(me: pl.DataFrame, opp_start: pl.DataFrame, q_of: dict[int, np.ndarray], counts: dict[str, int],
+           corr: dict, n: int = 20000, seed: int = 7) -> Decision:
+    """Core choice, independent of where the inputs came from.
+
+    me: my roster rows with player_id, pos, proj, slot, locked, unavailable, actual, game, role, team, opp.
+    opp_start: opponent starters with the same columns. q_of: player_id -> quantile curve.
+    """
+    my_locked = me.filter(pl.col("locked") & ~pl.col("slot").is_in([BENCH, IR]))
+    free = me.filter(~pl.col("locked") & ~pl.col("unavailable"))
+    open_slots = dict(counts)
+    for s in my_locked["slot"]:
+        open_slots[SLOT[s]] -= 1
+    lineups = _enumerate(free, open_slots)
+    sim = pl.concat([free, opp_start.filter(~pl.col("locked"))], how="diagonal_relaxed").unique("player_id").sort("player_id")
+    col = {p: i for i, p in enumerate(sim["player_id"])}
+    sides = [0 if t == min(t, o) else 1 for t, o in zip(sim["team"].to_list(), sim["opp"].fill_null("").to_list())]
+    D = draw(np.array([q_of[p] for p in sim["player_id"]]), sim["game"].to_list(), sim["role"].to_list(), sides, corr,
+             n=n, rng=np.random.default_rng(seed))
+    fixed_me = float(my_locked["actual"].fill_null(0).sum())
+    opp_total = float(opp_start.filter(pl.col("locked"))["actual"].fill_null(0).sum()) + \
+        D[:, [col[p] for p in opp_start.filter(~pl.col("locked"))["player_id"]]].sum(axis=1)
+    L = np.zeros((len(lineups), len(col)))
+    for k, lu in enumerate(lineups):
+        L[k, [col[p] for _, p in lu if p in col]] = 1.0
+    my_totals, diff, pwin = score_lineups(D, L, fixed_me, opp_total)
+    proj = dict(zip(free["player_id"], free["proj"]))
+    mp = int(np.argmax([sum(proj.get(p, 0.0) for _, p in lu) for lu in lineups]))
+    # Among lineups tied on P(win) (within Monte Carlo noise), take the one with the most expected points.
+    # Matters when the result is nearly certain either way: every lineup sits at ~0% or ~100%.
+    top = int(np.argmax(pwin))
+    se = np.sqrt(max(pwin[top] * (1 - pwin[top]), 1e-4) / n)
+    tied = np.flatnonzero(pwin >= pwin[top] - max(0.002, 2 * se))
+    best = int(tied[np.argmax(my_totals[:, tied].mean(axis=0))])
+    return Decision(lineups, pwin, best, mp, diff, my_totals, opp_total, fixed_me, D, col)
 
 
 def score_lineups(D: np.ndarray, L: np.ndarray, fixed_me: float, opp_total: np.ndarray):
@@ -168,8 +199,17 @@ def _opponent_starters(opp: pl.DataFrame, counts: dict[str, int]) -> pl.DataFram
     return opp.filter(pl.col("player_id").is_in(keep))
 
 
+EMPTY = "EMPTY"  # placeholder for a slot no available player can fill (scores 0)
+
+
 def _enumerate(free: pl.DataFrame, open_slots: dict[str, int]) -> list[list[tuple[str, int]]]:
     by_pos = {p: free.filter(pl.col("pos") == p)["player_id"].to_list() for p in ["QB", "RB", "WR", "TE", "K", "D/ST"]}
+    # pad short positions (and the flex) with empty placeholders so a legal lineup always exists
+    for p in by_pos:
+        need = open_slots.get(p, 0) + (open_slots.get("FLEX", 0) if p in FLEX_OK else 0)
+        by_pos[p] += [f"{EMPTY}-{p}-{i}" for i in range(max(0, open_slots.get(p, 0) - len(by_pos[p])))]
+        if p == "WR" and need > len(by_pos[p]):  # one flex placeholder is enough
+            by_pos[p] += [f"{EMPTY}-FLEX-0"]
     singles = {}
     for pos in ["QB", "K", "D/ST"]:
         k = open_slots.get(pos, 0)
@@ -187,7 +227,8 @@ def _enumerate(free: pl.DataFrame, open_slots: dict[str, int]) -> list[list[tupl
                         for k in singles["K"]:
                             for d in singles["D/ST"]:
                                 out.append(core + [("QB", p) for p in qb] + [("K", p) for p in k] + [("D/ST", p) for p in d])
-    # the same players with WR/FLEX labels swapped is the same lineup
+    # the same players with WR/FLEX labels swapped is the same lineup; prefer real players over placeholders
+    out.sort(key=lambda lu: sum(isinstance(p, str) for _, p in lu))
     seen, unique = set(), []
     for lu in out:
         key = frozenset(p for _, p in lu)

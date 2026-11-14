@@ -34,3 +34,9 @@ def test_favorite_prefers_steady_underdog_prefers_volatile():
     _, _, p_dog = score_lineups(D, L, fixed_me=80.0, opp_total=opp)   # trailing by ~8
     assert p_fav[0] > p_fav[1]   # favorite: steady player
     assert p_dog[1] > p_dog[0]   # underdog: volatile player
+
+
+def test_short_roster_gets_an_empty_slot_not_no_lineup():
+    free = pl.DataFrame({"player_id": [1, 2, 3, 4, 5, 6, 7, 8], "pos": ["QB", "RB", "RB", "WR", "WR", "WR", "TE", "D/ST"]})
+    lus = _enumerate(free, COUNTS)   # no kicker available
+    assert lus and all(any(s == "K" and isinstance(p, str) for s, p in lu) for lu in lus)
