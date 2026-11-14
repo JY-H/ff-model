@@ -22,7 +22,7 @@ from ..db import load_raw
 from ..research.line_injuries import starters_out
 from . import correlation as C
 from .live import TEAM_NAMES, build_inputs
-from .marginals import MODEL_PATH, TAUS, Marginals, curve_mean, features
+from .marginals import MODEL_PATH, TAUS, Marginals, anchor, curve_mean, espn_context_quantiles, features, neutralize
 from .optimize import BENCH, IR, SLOT, _opponent_starters, _reason, _slot_counts, decide
 
 SHOW_TAUS = (0.1, 0.25, 0.5, 0.75, 0.9)
@@ -348,14 +348,17 @@ def build_report(week: int | None = None, team_id: int | None = None, snapshot_i
 
     marg = Marginals.load(MODEL_PATH)
     dfq = df.with_columns(pl.col("pos").fill_null("WR"))
-    q = marg.quantiles(dfq)
+    # live distributions: ESPN's projection + the context's shift (the backtested "ESPN + context" variant)
+    q = espn_context_quantiles(marg, dfq)
     taus = list(TAUS)
     i50 = taus.index(0.5)
-    med = q[:, i50]
-    effects = {g: med - marg.quantiles(_neutral(dfq, cols))[:, i50] for g, cols in GROUPS.items()}
-    # median with every context group neutralized: the "shape" before context
-    all_neutral = {k: v for cols in GROUPS.values() for k, v in cols.items()}
-    base_med = marg.quantiles(_neutral(dfq, all_neutral))[:, i50]
+    proj_arr = dfq["proj"].to_numpy()
+    q_ctx_raw = marg.quantiles(dfq)
+    mean_ctx = curve_mean(q_ctx_raw)
+    # each group's effect on the expectation = what removing just that group changes; they add up
+    effects = {g: mean_ctx - curve_mean(marg.quantiles(_neutral(dfq, cols))) for g, cols in GROUPS.items()}
+    # the shape before any context, pinned to ESPN's projection (its median vs ESPN = the skew)
+    base_med = anchor(marg.quantiles(neutralize(dfq)), proj_arr)[:, i50]
     shares = features(dfq.with_columns([pl.col(c).fill_null(0.0) for c in ["p_rush_td", "p_rec_td", "p_rec", "p_pass_td", "p_rush_yds"]]))
 
     opp_start = _opponent_starters(df.filter(pl.col("team_id") == opp_id), counts)

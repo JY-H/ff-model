@@ -21,7 +21,7 @@ import polars as pl
 from ..config import DB_PATH, ET, SEASON
 from ..research.factor_tests import factor_frame
 from . import correlation as C
-from .marginals import MODEL_PATH, Marginals
+from .marginals import MODEL_PATH, Marginals, espn_context_quantiles
 from .optimize import BENCH, IR, _slot_counts, decide
 
 DECISION = time(11, 45)
@@ -69,7 +69,7 @@ def run(weeks=range(1, 10), n: int = 10000) -> pl.DataFrame:
     marg = Marginals.load(MODEL_PATH)
     frame = factor_frame([SEASON], depth=50.0, with_u=False).filter(pl.col("week").is_in(list(weeks)))
     frame = C.assign_roles(frame)
-    q_all = marg.quantiles(frame)
+    q_all = espn_context_quantiles(marg, frame)
     kick = _team_kickoffs(con)
     frame = frame.with_row_index("qi").join(kick, on=["week", "team"], how="left")
     out = []

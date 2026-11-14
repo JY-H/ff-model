@@ -22,7 +22,7 @@ from ..config import DB_PATH, MY_TEAM_ID
 from ..db import load_raw
 from . import correlation as C
 from .live import build_inputs
-from .marginals import MODEL_PATH, TAUS, Marginals
+from .marginals import MODEL_PATH, TAUS, Marginals, espn_context_quantiles
 from .simulate import draw
 
 SLOT = {0: "QB", 2: "RB", 4: "WR", 6: "TE", 16: "D/ST", 17: "K", 23: "FLEX"}
@@ -79,7 +79,7 @@ def recommend(snapshot_id: int | None = None, n: int = 20000, seed: int = 7) -> 
         (pl.col("kickoff_utc").str.to_datetime(time_zone="UTC") <= pl.lit(taken)).fill_null(False).alias("locked"),
         (pl.col("report_status").is_in(["Out"]) | (pl.col("slot") == IR) | pl.col("opp").is_null()).fill_null(True)
         .alias("unavailable"))
-    q = Marginals.load(MODEL_PATH).quantiles(df.with_columns(pl.col("pos").fill_null("WR")))
+    q = espn_context_quantiles(Marginals.load(MODEL_PATH), df.with_columns(pl.col("pos").fill_null("WR")))
     taus = list(TAUS)
     df = df.with_columns(*[pl.Series(f"p{int(t*100)}", q[:, taus.index(t)]) for t in (0.1, 0.5, 0.9)])
 

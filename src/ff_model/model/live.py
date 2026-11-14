@@ -22,7 +22,7 @@ from ..research.factor_tests import _add_line_injuries, _add_return_from_absence
 from ..research.line_injuries import starters_out
 from ..research.nflverse import load
 from ..research.projection_errors import POS
-from .marginals import MODEL_PATH, TAUS, Marginals
+from .marginals import MODEL_PATH, TAUS, Marginals, espn_context_quantiles
 
 # Odds API full names -> nflverse abbreviations
 TEAM_NAMES = {
@@ -133,6 +133,6 @@ def build_inputs(snapshot_id: int | None = None) -> pl.DataFrame:
 
 
 def with_quantiles(df: pl.DataFrame, show=(0.1, 0.5, 0.9)) -> pl.DataFrame:
-    q = Marginals.load(MODEL_PATH).quantiles(df)
+    q = espn_context_quantiles(Marginals.load(MODEL_PATH), df)
     taus = list(TAUS)
     return df.with_columns([pl.Series(f"p{int(t*100)}", q[:, taus.index(t)]) for t in show])

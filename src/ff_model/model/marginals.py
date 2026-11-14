@@ -202,3 +202,20 @@ def anchor(q: np.ndarray, proj: np.ndarray, q_base: np.ndarray | None = None) ->
     context's own shift of the mean: mean(q) - mean(q_base)). Shape and spread unchanged."""
     target = proj + ((curve_mean(q) - curve_mean(q_base)) if q_base is not None else 0.0)
     return q + (target - curve_mean(q))[:, None]
+
+
+# Context inputs set to "no information" (used to measure what the context adds).
+CONTEXT_NEUTRAL = {"roof": None, "wind": None, "temp": None, "exp_margin": None, "report_status": "none",
+                   "practice_status": None, "games_back": 0, "ol_out": 0, "opp_ol_out": 0, "opp_db_out": 0}
+
+
+def neutralize(df: pl.DataFrame, cols: dict | None = None) -> pl.DataFrame:
+    cols = CONTEXT_NEUTRAL if cols is None else cols
+    return df.with_columns([pl.lit(v).cast(df.schema[c]).alias(c) for c, v in cols.items() if c in df.columns])
+
+
+def espn_context_quantiles(m: "Marginals", df: pl.DataFrame) -> np.ndarray:
+    """Live distributions ("ESPN + context", the best variant in the walk-forward backtest):
+    the model's shape, shifted so the mean = ESPN's projection + the context's own shift."""
+    q = m.quantiles(df)
+    return anchor(q, df["proj"].to_numpy(), m.quantiles(neutralize(df)))

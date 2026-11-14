@@ -44,7 +44,7 @@ Head-to-head is a win/lose payoff, so variance and correlation with the opponent
 | 3. Player distributions | ✅ Quantile model with context (weather, spread, injuries, OL/DB) |
 | 4. Correlation model | ✅ Role-pair copula, validated on 2024–2025 sums |
 | 5. Optimizer + late swap | ✅ `recommend` command and `web` page |
-| 6. Backtest and live tracking | 🟡 League 2026 W1–9 done; synthetic 2019–2025 next |
+| 6. Backtest and live tracking | ✅ League 2026 W1–9 replay; synthetic walk-forward 2022–2025 |
 
 ### 1. Archiver ✅
 
@@ -115,6 +115,13 @@ Split each projection into a yardage/receptions part (roughly normal) and a TD p
 ### 4. Correlation model
 
 Factors for each game's environment, each team's passing and rushing, and a negative link between an offense and the opposing D/ST. Join them to the player distributions with a copula. Fit on early seasons, test on later ones.
+
+### Backtest findings (2026-11-14)
+
+- Synthetic walk-forward 2022–2025 (5,280 decisions per variant; models fit only on earlier seasons). An earlier run used each player's last-week distribution for every week (a lookup keyed by player only); those results were void and are kept in `data/backtest_synth_invalid/`.
+- The live recommender uses **ESPN + context**: the model's range shape, with the mean pinned to ESPN's projection plus the tested context shifts (`marginals.espn_context_quantiles`). Where it differs from the highest-projection lineup (about 34% of decisions), it gains **+0.60 ± 0.48 points**. Win-rate change is +0.2%, within noise.
+- P(win) is well calibrated (predicted 85% won 82–86%).
+- Player cards add up: model expectation = ESPN + weather + spread + injury + OL/DB effects.
 
 ### 5. Optimizer
 

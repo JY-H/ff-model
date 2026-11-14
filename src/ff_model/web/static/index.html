@@ -500,7 +500,7 @@ function openDrawer(p) {
       <div>25th–75th<b>${pts(q.p25)}–${pts(q.p75)}</b></div><div>Beats ESPN<b>${pct(c.beat_proj)}</b></div><div>Under 5<b>${pct(c.dud)}</b></div><div>20+<b>${pct(c.twenty)}</b></div>
       ${p.final != null ? `<div>Actual final<b>${pts(p.final)}</b></div>` : ""}
     </div>
-    <h3>What moved the median ${total ? `<span class="muted small">(context total ${sgn(total)})</span>` : ""}</h3>
+    <h3>What moved the model's expectation <span class="muted small">(ESPN ${pts(p.proj)}${total ? ` ${sgn(total)} context` : ""} = model ${pts(p.model_mean)})</span></h3>
     ${(p.explain || []).map(e => `<div class="factor"><div class="hd"><span>${esc(e.headline)}</span><span>${e.factor === "shape" ? "" : e.factor === "teammates" ? "info only" : (Math.abs(e.effect) < 0.05 ? "no change" : sgn(e.effect))}</span></div>
       ${e.details.map(d => `<p>${esc(d)}</p>`).join("")}${(e.evidence || []).map(d => `<p class="ev">${esc(d)}</p>`).join("")}</div>`).join("")}
     ${p.statline && Object.keys(p.statline).length ? `<h3>ESPN's projected stat line</h3><div class="kv">${Object.entries(p.statline).map(([k, v]) => `<div>${esc(k)}<b>${pts(v, v < 10 ? 2 : 1)}</b></div>`).join("")}</div>` : ""}

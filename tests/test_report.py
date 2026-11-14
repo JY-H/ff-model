@@ -38,3 +38,17 @@ def test_changes_vs_max_projection_are_reported():
         rec = {p["name"] for p in r["players"]["me"] if p.get("recommended")}
         mp = {p["name"] for p in r["players"]["me"] if p.get("maxproj_slot")}
         assert set(r["changes"]["start"]) == rec - mp and set(r["changes"]["bench"]) == mp - rec
+
+
+def test_player_card_adds_up_espn_plus_context():
+    """Model expectation = ESPN projection + the listed context effects (ESPN + context variant)."""
+    if not DB_PATH.exists():
+        pytest.skip("no archive")
+    from ff_model.model.report import build_report
+    for week in (10, 3):
+        r = build_report(week=week, team_id=9, n=500)
+        for p in r["players"]["me"] + r["players"]["opp"]:
+            if p["locked"] or p["unavailable"] or not p["proj"]:
+                continue
+            expected = p["proj"] + sum(p["effects"].values())
+            assert abs(p["model_mean"] - expected) < 0.15, (week, p["name"], p["proj"], p["effects"], p["model_mean"])
