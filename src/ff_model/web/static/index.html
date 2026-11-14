@@ -52,6 +52,11 @@ th { text-align: left; font-weight: 600; font-size: 12px; color: var(--text-seco
 td { padding: 6px; border-bottom: 1px solid var(--grid); vertical-align: middle; }
 .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pname { font-weight: 600; } .pmeta { font-size: 12px; color: var(--text-muted); }
+.nc { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.nc.opp { flex-direction: row-reverse; } .nc.opp .nm { text-align: right; }
+.nc .nm { flex-shrink: 0; } .nc .pname, .nc .pmeta { white-space: nowrap; }
+.nc .tags { flex-wrap: wrap; flex-shrink: 1; min-width: 0; } .nc .tags .chip { white-space: nowrap; }
+.nc .tags { justify-content: flex-end; max-width: 60%; } .nc.opp .tags { justify-content: flex-start; }
 .rngcell { width: 1%; white-space: nowrap; padding-left: 4px; padding-right: 4px; }
 .clickable { cursor: pointer; } .clickable:hover { background: var(--grid); }
 .h2h td.slot { text-align: center; font-weight: 600; color: var(--text-secondary); font-size: 12px; background: var(--surface-0); width: 52px; }
@@ -309,15 +314,18 @@ function slotLists(rows, side) {
   const out = SLOTS.map(s => (by[s] || []).shift() || null);
   return {slots: out, bench: rows.filter(p => !start.includes(p)).sort((a, b) => b.proj - a.proj)};
 }
+const H2H_W = 185;  // range-chart width in the head-to-head
 function cell(p, side, align) {
   if (!p) return side === "me" ? `<td class="muted small">(empty)</td><td></td><td></td><td></td>` : `<td></td><td></td><td></td><td class="muted small r">(empty)</td>`;
-  const fin = "";
   const finPill = p.final != null ? `<span class="chip" style="font-weight:650;color:var(--text-primary)">final ${pts(p.final)}</span>` : "";
-  const name = `<td class="clickable ${align}" data-player="${p.id}"><div class="pname">${esc(p.name)} ${finPill}</div>
-    <div class="pmeta">${esc(p.pos || "")} · ${esc(p.team || "")}${p.opp ? " vs " + esc(p.opp) : " · bye"} · ${p.locked ? "played" : when(p.kickoff)}${fin}</div>
-    <div class="chips" style="${align === "r" ? "justify-content:flex-end;" : ""}margin-top:2px">${statusChips(p)}${side === "me" ? " " + linkChips(p) : ""}</div></td>`;
+  const chips = `${statusChips(p)}${side === "me" ? " " + linkChips(p) : ""}`;
+  // name block and tags side by side: tags sit toward the middle of the table, where the space is
+  const name = `<td class="clickable namecell" data-player="${p.id}"><div class="nc ${side}">
+      <div class="nm"><div class="pname">${esc(p.name)} ${finPill}</div>
+        <div class="pmeta">${esc(p.pos || "")} · ${esc(p.team || "")}${p.opp ? " vs " + esc(p.opp) : " · bye"} · ${p.locked ? "played" : when(p.kickoff)}</div></div>
+      ${chips.trim() ? `<div class="chips tags">${chips}</div>` : ""}</div></td>`;
   const e = `<td class="num">${pts(p.proj)}</td>`, m = modelTd(p);
-  const rg = `<td class="clickable rngcell" data-player="${p.id}">${rangeSvg(p, S.sc, side)}</td>`;
+  const rg = `<td class="clickable rngcell" data-player="${p.id}">${rangeSvg(p, S.sc, side, H2H_W)}</td>`;
   return side === "me" ? name + e + m + rg : rg + m + e + name;
 }
 function benchTable(all, side, title) {
@@ -423,7 +431,7 @@ function renderMatchup(r) {
     <h2>Head to head${replay ? " (model's lineup vs. their actual lineup)" : ""}</h2>
     ${rangeLegend(replay)}
     <div class="card scroll" style="margin-top:6px"><table class="h2h">
-      <tr><th>${esc(r.me.name)}</th><th class="num">ESPN</th><th class="num">Model</th><th class="rngcell">${axisSvg(S.sc)}</th><th></th><th class="rngcell">${axisSvg(S.sc)}</th><th class="num">Model</th><th class="num">ESPN</th><th style="text-align:right">${esc(r.opponent.name)}</th></tr>
+      <tr><th>${esc(r.me.name)}</th><th class="num">ESPN</th><th class="num">Model</th><th class="rngcell">${axisSvg(S.sc, H2H_W)}</th><th></th><th class="rngcell">${axisSvg(S.sc, H2H_W)}</th><th class="num">Model</th><th class="num">ESPN</th><th style="text-align:right">${esc(r.opponent.name)}</th></tr>
       ${SLOTS.map((s, i) => { const a = me.slots[i], b = op.slots[i];
         return `<tr class="${a && a.recommended && ["BE", "IR"].includes(a.slot) ? "rec" : ""}">${cell(a, "me", "")}<td class="slot">${s}</td>${cell(b, "opp", "r")}</tr>`; }).join("")}
     </table></div>
