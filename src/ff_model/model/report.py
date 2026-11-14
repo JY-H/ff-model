@@ -303,6 +303,22 @@ def _line_who(source: str, sid: int | None, week: int) -> dict:
     return out
 
 
+def _vacated_who(source: str, sid: int | None, week: int) -> dict:
+    """team -> (targets share vacated, carries share vacated, who), from what was known before kickoff."""
+    from ..research.vacated import vacated
+    con = _con()
+    if source == "live":
+        isid = con.execute("SELECT MAX(snapshot_id) FROM injury_reports WHERE snapshot_id <= ?", (sid,)).fetchone()[0]
+        rep = pl.DataFrame([dict(r) for r in con.execute(
+            "SELECT season, week, gsis_id, report_status FROM injury_reports WHERE snapshot_id=?", (isid,))]) if isid else None
+        v = vacated([SEASON], extra_injuries=rep.with_columns(pl.col("season").cast(pl.Int64), pl.col("week").cast(pl.Int64))
+                    if rep is not None and rep.height else None, asof_week=week)
+    else:
+        v = vacated([SEASON])
+    return {r["team"]: (r["vacated_tgt"], r["vacated_car"], r["vacated_who"])
+            for r in v.filter(pl.col("week") == week).iter_rows(named=True) if r["vacated_who"]}
+
+
 def build_report(week: int | None = None, team_id: int | None = None, snapshot_id: int | None = None,
                  overrides: dict | None = None, n: int = 20000, seed: int = 7) -> dict:
     overrides = overrides or {}
@@ -362,6 +378,7 @@ def build_report(week: int | None = None, team_id: int | None = None, snapshot_i
     opp_games = {(r["game"], r["team"], r["pos"], r["name"]) for r in opp_start.iter_rows(named=True) if r["game"]}
     totals = _totals(con, sid, week)
     line_who = _line_who(source, sid, week)
+    vac_who = _vacated_who(source, sid, week)
     opp_ids = set(opp_start["player_id"])
 
     def player(i: int, r: dict, side: str) -> dict:
@@ -384,6 +401,20 @@ def build_report(week: int | None = None, team_id: int | None = None, snapshot_i
                          if k in STAT_NAMES and v}, "nudge": nudge.get(p, 0.0),
         }
         out["explain"] = _explain(out, out["effects"], float(base_med[i] - (r["proj"] or 0)), line_who) if r["pos"] else []
+        vt = vac_who.get(r["team"])
+        if vt and r["pos"] in ("WR", "TE", "RB"):
+            who = "; ".join(x for x in vt[2].split("; ") if not x.startswith(r["name"] + " "))
+            if who:
+                out["teammates_out"] = who
+                grp = "20%+" if vt[0] >= 0.20 else "under 20%" if vt[0] > 0 else "none"
+                ev = [_ev("teammate targets vacated", r["pos"], grp)]
+                if r["pos"] == "RB":
+                    ev.append(_ev("teammate carries vacated", "RB", "40%+" if vt[1] >= 0.40 else "under 40%" if vt[1] > 0 else "none"))
+                out["explain"].append({"factor": "teammates", "effect": 0.0, "headline": "Teammates out",
+                                       "details": [f"{r['team']} key players out: {who}.",
+                                                   f"{vt[0]:.0%} of the team's targets and {vt[1]:.0%} of its carries are vacated.",
+                                                   "Not a model input: ESPN's projection already moves for this (e.g. it raises the next players up)."],
+                                       "evidence": [e for e in ev if e]})
         out["props"] = _props(con, sid, r["name"])
         if p in (dec.col or {}):
             x = dec.D[:, dec.col[p]]

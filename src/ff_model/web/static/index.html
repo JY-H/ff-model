@@ -206,6 +206,7 @@ function statusChips(p) {
   if (p.practice && p.status && p.status !== "none")
     c.push(`<span class="chip">${/Did Not/.test(p.practice) ? "Missed practice" : /Limited/.test(p.practice) ? "Limited practice" : "Full practice"}</span>`);
   if (p.games_back === 1 || p.games_back === 2) c.push(`<span class="chip">${p.games_back === 1 ? "1st" : "2nd"} game back</span>`);
+  if (p.teammates_out) c.push(`<span class="chip" title="${esc(p.teammates_out)}">Key teammate out</span>`);
   if (p.unavailable && !p.locked && p.status !== "Out") c.push(`<span class="chip">Unavailable</span>`);
   if (p.nudge) c.push(`<span class="chip status" style="--dot:var(--me)">What-if ${sgn(p.nudge)}</span>`);
   return c.join(" ");
@@ -448,7 +449,7 @@ function openDrawer(p) {
       ${p.final != null ? `<div>Actual final<b>${pts(p.final)}</b></div>` : ""}
     </div>
     <h3>What moved the median ${total ? `<span class="muted small">(context total ${sgn(total)})</span>` : ""}</h3>
-    ${(p.explain || []).map(e => `<div class="factor"><div class="hd"><span>${esc(e.headline)}</span><span>${e.factor === "shape" ? "" : (Math.abs(e.effect) < 0.05 ? "no change" : sgn(e.effect))}</span></div>
+    ${(p.explain || []).map(e => `<div class="factor"><div class="hd"><span>${esc(e.headline)}</span><span>${e.factor === "shape" ? "" : e.factor === "teammates" ? "info only" : (Math.abs(e.effect) < 0.05 ? "no change" : sgn(e.effect))}</span></div>
       ${e.details.map(d => `<p>${esc(d)}</p>`).join("")}${(e.evidence || []).map(d => `<p class="ev">${esc(d)}</p>`).join("")}</div>`).join("")}
     ${p.statline && Object.keys(p.statline).length ? `<h3>ESPN's projected stat line</h3><div class="kv">${Object.entries(p.statline).map(([k, v]) => `<div>${esc(k)}<b>${pts(v, v < 10 ? 2 : 1)}</b></div>`).join("")}</div>` : ""}
     ${p.props && p.props.length ? `<h3>Betting props (median across books)</h3><table><tr><th>Market</th><th>Side</th><th class="num">Line</th><th class="num">Implied</th></tr>
@@ -498,7 +499,8 @@ function renderContext(c, r) {
     return `<tr class="clickable prow" data-player="${p.id}"><td><span class="pname">${esc(p.name)}</span> <span class="pmeta">${esc(p.pos)} · ${esc(p.team)}${starters.has(p.id) ? "" : " · bench"}</span></td>
       <td class="small">${side}</td>
       <td class="small">${esc(inj) || '<span class="muted">–</span>'}</td>
-      <td class="small">${lines ? esc(lines.details.filter(d => !d.startsWith("Starters =")).join(" ")) : '<span class="muted">–</span>'}</td>
+      <td class="small">${[lines ? esc(lines.details.filter(d => !d.startsWith("Starters =")).join(" ")) : "",
+                           p.teammates_out ? `Teammates out: ${esc(p.teammates_out)}` : ""].filter(Boolean).join("<br>") || '<span class="muted">–</span>'}</td>
       ${effectTd(total)}</tr>`;
   };
   const all = [...mine.map(p => [p, "You"]), ...theirs.map(p => [p, "Opp"])];
@@ -520,7 +522,7 @@ function renderContext(c, r) {
       Showing ${esc(r.me.name)} vs ${esc(r.opponent.name)}; change the team above to see another matchup.</p>
     <h2>Your matchup</h2>
     <div class="card scroll"><table class="bygame">
-      <tr><th>Player</th><th>Team</th><th>Injury report</th><th>OL / secondary out</th><th class="num">Context effect</th></tr>
+      <tr><th>Player</th><th>Team</th><th>Injury report</th><th>Missing teammates (OL, secondary, key targets/carries)</th><th class="num">Context effect</th></tr>
       ${gameRows}</table>
       <p class="small muted" style="margin:6px 0 0">Grouped by game in kickoff order; within a game, starters first. Click a player for the full explanation. OL/DB notes appear where the model uses them (own OL for QB/RB, opponent OL for D/ST, opponent secondary for QB).</p></div>
     <h2>Games with players from this matchup</h2>

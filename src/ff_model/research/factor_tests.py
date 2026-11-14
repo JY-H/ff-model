@@ -118,6 +118,7 @@ def factor_frame(seasons=SEASONS, depth: float = 1.0, with_u: bool = True) -> pl
     df = _add_return_from_absence(df, seasons)
     df = _add_mismatch(df, seasons)
     df = _add_line_injuries(df, seasons)
+    df = _add_vacated(df, seasons)
 
     # --- where the actual landed in the player's predicted range ---
     if with_u:
@@ -161,6 +162,14 @@ def _add_line_injuries(df: pl.DataFrame, seasons=SEASONS, line=None) -> pl.DataF
                     pl.col("db_out").alias("opp_db_out"))
     return (df.join(own, on=["season", "week", "team"], how="left")
               .join(opp, on=["season", "week", "opp"], how="left"))
+
+
+def _add_vacated(df: pl.DataFrame, seasons=SEASONS, vac=None) -> pl.DataFrame:
+    """Share of the team's targets / carries held by key teammates who are out (injury-report based)."""
+    from .vacated import vacated
+    v = vac if vac is not None else vacated(list(seasons))
+    return (df.join(v.select("season", "week", "team", "vacated_tgt", "vacated_car"), on=["season", "week", "team"], how="left")
+              .with_columns(pl.col("vacated_tgt").fill_null(0.0), pl.col("vacated_car").fill_null(0.0)))
 
 
 def _add_mismatch(df: pl.DataFrame, seasons=SEASONS) -> pl.DataFrame:
@@ -243,6 +252,11 @@ def _groups(df: pl.DataFrame) -> list[tuple[str, pl.Expr, list[str]]]:
         ("own OL starters out", cnt("ol_out"), skill),
         ("opp OL starters out", cnt("opp_ol_out"), ["D/ST", "QB", "RB"]),
         ("opp DB starters out", cnt("opp_db_out"), ["QB", "WR", "TE"]),
+        ("teammate targets vacated", pl.when(pl.col("vacated_tgt") >= 0.20).then(pl.lit("20%+"))
+                                       .when(pl.col("vacated_tgt") > 0).then(pl.lit("under 20%")).otherwise(pl.lit("none")),
+         ["WR", "TE", "RB"]),
+        ("teammate carries vacated", pl.when(pl.col("vacated_car") >= 0.40).then(pl.lit("40%+"))
+                                       .when(pl.col("vacated_car") > 0).then(pl.lit("under 40%")).otherwise(pl.lit("none")), ["RB"]),
         ("opp implied total", terc("opp_implied_total", pl.lit(True)), skill),
         ("D-vs-O mismatch (stats)", terc("mismatch", pl.col("mismatch").is_not_null(),
                                           ("well matched", "avg", "badly matched")), skill),
