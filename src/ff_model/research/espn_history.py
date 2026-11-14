@@ -51,12 +51,12 @@ def _path(season, week, page):
     return HIST_DIR / str(season) / f"w{week:02d}-p{page}.json.gz"
 
 
-def download(seasons=None) -> None:
+def download(seasons=None, weeks=None) -> None:
     s = requests.Session()
     s.headers["User-Agent"] = "ff-model-archiver (personal use)"
     sent = 0
     for season in seasons or range(FIRST_SEASON, LAST_SEASON + 1):
-        for week in weeks_in(season):
+        for week in (weeks or weeks_in(season)):
             page = 0
             while True:
                 path = _path(season, week, page)

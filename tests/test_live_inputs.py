@@ -54,3 +54,15 @@ def test_every_kickoff_slot_finds_its_games_with_stadiums():
         assert all(g["roof"] in ("outdoors", "closed", "dome") for g in games)
         checked += 1
     assert checked > 0
+
+
+@pytest.mark.skipif(not (NFLVERSE_DIR / "rosters_weekly" / "2026.parquet").exists(), reason="no nflverse 2026")
+def test_factor_frame_uses_requested_seasons():
+    """Regression: factor_frame once read 2019-2025 regardless of `seasons`, leaving 2026 unjoined."""
+    from ff_model.research.espn_history import HIST_DIR
+    from ff_model.research.factor_tests import factor_frame
+    if not (HIST_DIR / "2026").exists():
+        pytest.skip("no 2026 projections")
+    df = factor_frame([2026], depth=1.0, with_u=False)
+    assert df["team"].is_not_null().mean() > 0.95
+    assert df["opp"].is_not_null().mean() > 0.95

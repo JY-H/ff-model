@@ -46,6 +46,7 @@ def main(argv=None) -> None:
     bf.add_argument("weeks", type=int, nargs="+")
     eh = sub.add_parser("espn-history", help="backfill ESPN weekly projections 2019-2025")
     eh.add_argument("--seasons", type=int, nargs="*")
+    eh.add_argument("--weeks", type=int, nargs="*", help="only these weeks (e.g. completed weeks this season)")
     sub.add_parser("fit-marginals", help="fit player distributions on 2019-2025 and save")
     np_ = sub.add_parser("nflverse", help="download nflverse history (current season refreshed)")
     np_.add_argument("--seasons", type=int, nargs="*", help="default: 2012 through this season")
@@ -63,7 +64,7 @@ def main(argv=None) -> None:
         import polars as pl
 
         from .research import espn_history
-        espn_history.download(args.seasons)
+        espn_history.download(args.seasons, args.weeks)
         df = espn_history.parse()
         print(df.group_by("season").agg(weeks=pl.col("week").n_unique(), rows=pl.len()).sort("season"))
         return

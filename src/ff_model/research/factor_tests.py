@@ -25,9 +25,9 @@ SEASONS = list(range(2019, 2026))
 MIN_PRIOR_GAMES = 3
 
 
-def _team_games() -> pl.DataFrame:
+def _team_games(seasons=SEASONS) -> pl.DataFrame:
     """One row per team-game: opponent, home/away, weather, lines, implied total."""
-    s = load("schedules", SEASONS).filter(pl.col("game_type") == "REG")
+    s = load("schedules", list(seasons)).filter(pl.col("game_type") == "REG")
     base = ["season", "week", "roof", "temp", "wind", "spread_line", "total_line"]
     home = s.select(*base, pl.col("home_team").alias("team"), pl.col("away_team").alias("opp"),
                     pl.lit(1).alias("is_home"))
@@ -56,13 +56,14 @@ def _trailing(df: pl.DataFrame, key: str, cols: list[str]) -> pl.DataFrame:
 def factor_frame(seasons=SEASONS, depth: float = 1.0, with_u: bool = True) -> pl.DataFrame:
     con = connect()
     rules = scoring.league_rules(con)
-    df = relevant(build(list(seasons)), depth=depth)
+    seasons = list(seasons)
+    df = relevant(build(seasons), depth=depth)
 
     # Player's NFL team that week. ESPN's historical entries don't carry it (proTeamId is 0, and
     # the player-level team is *current*), so use nflverse weekly rosters; D/ST ids encode the team.
     ids = (load("ff_playerids").select(pl.col("espn_id").cast(pl.Int64, strict=False), "gsis_id")
            .drop_nulls().unique("espn_id"))
-    rost = (load("rosters_weekly", SEASONS)
+    rost = (load("rosters_weekly", seasons)
             .select(pl.col("season").cast(pl.Int64), pl.col("week").cast(pl.Int64), "gsis_id",
                     pl.col("team").alias("roster_team"))
             .drop_nulls("gsis_id").unique(["season", "week", "gsis_id"]))
@@ -73,11 +74,11 @@ def factor_frame(seasons=SEASONS, depth: float = 1.0, with_u: bool = True) -> pl
             .join(rost, on=["season", "week", "gsis_id"], how="left")
             .with_columns(pl.when(pl.col("pos") == "D/ST").then(dst_team)
                           .otherwise(pl.col("roster_team")).alias("team")))
-    g = _team_games().with_columns(pl.col("season").cast(pl.Int64), pl.col("week").cast(pl.Int64))
+    g = _team_games(seasons).with_columns(pl.col("season").cast(pl.Int64), pl.col("week").cast(pl.Int64))
     df = df.join(g, on=["season", "week", "team"], how="left")
 
     # --- offense pace and red-zone stalls (team, prior weeks) ---
-    ts = load("team_stats", SEASONS).filter(pl.col("season_type") == "REG").with_columns(
+    ts = load("team_stats", seasons).filter(pl.col("season_type") == "REG").with_columns(
         (pl.col("attempts") + pl.col("carries") + pl.col("sacks_suffered")).alias("plays"),
         (pl.col("passing_tds") + pl.col("rushing_tds")).alias("off_tds"),
         pl.col("fg_att").cast(pl.Float64),
@@ -97,7 +98,7 @@ def factor_frame(seasons=SEASONS, depth: float = 1.0, with_u: bool = True) -> pl
                  on=["season", "week", "opp"], how="left")
 
     # --- fantasy points allowed to the position (prior weeks) ---
-    ps = scoring.score_players(load("player_stats", SEASONS).filter(pl.col("season_type") == "REG"), rules)
+    ps = scoring.score_players(load("player_stats", seasons).filter(pl.col("season_type") == "REG"), rules)
     fpa = (ps.filter(pl.col("position").is_in(["QB", "RB", "WR", "TE", "K"]))
              .group_by("season", "week", "opponent_team", "position").agg(pl.col("fpts").sum().alias("fpa")))
     fpa_t = pl.concat([
@@ -107,7 +108,7 @@ def factor_frame(seasons=SEASONS, depth: float = 1.0, with_u: bool = True) -> pl
                  on=["season", "week", "opp", "pos"], how="left")
 
     # --- injury designation that week (players who were listed) ---
-    inj = (load("injuries", SEASONS).filter(pl.col("game_type") == "REG")
+    inj = (load("injuries", seasons).filter(pl.col("game_type") == "REG")
            .select(pl.col("season").cast(pl.Int64), pl.col("week").cast(pl.Int64), "gsis_id", "report_status",
                    "practice_status", pl.col("report_primary_injury").alias("injury"))
            .unique(["season", "week", "gsis_id"]))
@@ -115,7 +116,7 @@ def factor_frame(seasons=SEASONS, depth: float = 1.0, with_u: bool = True) -> pl
             .with_columns(pl.col("report_status").fill_null("none")))
 
     df = _add_return_from_absence(df, seasons)
-    df = _add_mismatch(df)
+    df = _add_mismatch(df, seasons)
     df = _add_line_injuries(df, seasons)
 
     # --- where the actual landed in the player's predicted range ---
@@ -162,10 +163,10 @@ def _add_line_injuries(df: pl.DataFrame, seasons=SEASONS, line=None) -> pl.DataF
               .join(opp, on=["season", "week", "opp"], how="left"))
 
 
-def _add_mismatch(df: pl.DataFrame) -> pl.DataFrame:
+def _add_mismatch(df: pl.DataFrame, seasons=SEASONS) -> pl.DataFrame:
     """Opponent's implied total (market view), and the stats view people quote:
     this team's points allowed per game + opponent's points scored per game (prior weeks)."""
-    sch = load("schedules", SEASONS).filter(pl.col("game_type") == "REG")
+    sch = load("schedules", list(seasons)).filter(pl.col("game_type") == "REG")
     games = pl.concat([
         sch.select("season", "week", pl.col("home_team").alias("team"), pl.col("home_score").alias("pf"),
                    pl.col("away_score").alias("pa")),
