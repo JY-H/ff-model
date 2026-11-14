@@ -26,7 +26,7 @@
 * { box-sizing: border-box; }
 body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
 .viz-root { background: var(--surface-0); color: var(--text-primary); min-height: 100vh; padding: 0 24px 56px; }
-.viz-root > * { max-width: 1320px; margin-left: auto; margin-right: auto; }
+.viz-root > * { max-width: 1680px; margin-left: auto; margin-right: auto; }
 .appbar { position: sticky; top: 0; z-index: 15; background: color-mix(in srgb, var(--surface-0) 92%, transparent);
   backdrop-filter: blur(8px); padding-top: 18px; margin-bottom: 4px; }
 .brand .eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--me); }
@@ -71,7 +71,7 @@ td { padding: 7px 6px; border-bottom: 1px solid var(--grid); vertical-align: mid
 tr:last-child > td { border-bottom: none; }
 .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pname { font-weight: 600; } .pmeta { font-size: 12px; color: var(--text-muted); }
-.nc { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.nc { display: flex; align-items: center; justify-content: space-between; gap: 4px 10px; flex-wrap: wrap; }
 .nc.opp { flex-direction: row-reverse; } .nc.opp .nm { text-align: right; }
 .nc .nm { flex-shrink: 0; } .nc .pname, .nc .pmeta { white-space: nowrap; }
 .nc .tags { flex-wrap: wrap; flex-shrink: 1; min-width: 0; } .nc .tags .chip { white-space: nowrap; }
@@ -79,6 +79,8 @@ tr:last-child > td { border-bottom: none; }
 .rngcell { width: 1%; white-space: nowrap; padding-left: 4px; padding-right: 4px; }
 .clickable { cursor: pointer; } .clickable:hover { background: var(--grid); }
 .h2h td.slot { text-align: center; font-weight: 600; color: var(--text-secondary); font-size: 12px; background: var(--surface-0); width: 52px; }
+.h2h td, .h2h th { padding-left: 4px; padding-right: 4px; } .h2h th { text-transform: none; letter-spacing: 0; font-size: 12px; }
+.card.h2hcard { padding: 10px 12px; }
 .h2h td.r { text-align: right; } .h2h .rec { box-shadow: inset 3px 0 0 var(--me); }
 .three tr.diffrow td:not([style*="background"]) { background: var(--hl); } .ctr { text-align: center; }
 table.bygame { border-collapse: separate; border-spacing: 0; }
@@ -351,7 +353,7 @@ function slotLists(rows, side) {
   const out = SLOTS.map(s => (by[s] || []).shift() || null);
   return {slots: out, bench: rows.filter(p => !start.includes(p)).sort((a, b) => b.proj - a.proj)};
 }
-const H2H_W = 185;  // range-chart width in the head-to-head
+const H2H_W = 160;  // range-chart width in the head-to-head
 function cell(p, side, align) {
   if (!p) return side === "me" ? `<td class="muted small">(empty)</td><td></td><td></td><td></td>` : `<td></td><td></td><td></td><td class="muted small r">(empty)</td>`;
   const finPill = p.final != null ? `<span class="chip" style="font-weight:650;color:var(--text-primary)">final ${pts(p.final)}</span>` : "";
@@ -467,7 +469,7 @@ function renderMatchup(r) {
     ${replay ? replayTable(r) : ""}
     <h2>Head to head${replay ? " (model's lineup vs. their actual lineup)" : ""}</h2>
     ${rangeLegend(replay)}
-    <div class="card scroll" style="margin-top:6px"><table class="h2h">
+    <div class="card scroll h2hcard" style="margin-top:6px"><table class="h2h">
       <tr><th>${esc(r.me.name)}</th><th class="num">ESPN</th><th class="num">Model</th><th class="rngcell">${axisSvg(S.sc, H2H_W)}</th><th></th><th class="rngcell">${axisSvg(S.sc, H2H_W)}</th><th class="num">Model</th><th class="num">ESPN</th><th style="text-align:right">${esc(r.opponent.name)}</th></tr>
       ${SLOTS.map((s, i) => { const a = me.slots[i], b = op.slots[i];
         return `<tr class="${a && a.recommended && ["BE", "IR"].includes(a.slot) ? "rec" : ""}">${cell(a, "me", "")}<td class="slot">${s}</td>${cell(b, "opp", "r")}</tr>`; }).join("")}
