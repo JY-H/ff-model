@@ -27,8 +27,13 @@ def build(seasons: list[int]) -> pl.DataFrame:
     con = connect()
     rules = scoring.league_rules(con)
     proj = scoring.score_wide(espn_history.parse(seasons, write=False), rules)
+    # keep the projected stat-line pieces the distribution model uses
+    line = {"st_3": "p_pass_yds", "st_4": "p_pass_td", "st_20": "p_int", "st_24": "p_rush_yds",
+            "st_25": "p_rush_td", "st_42": "p_rec_yds", "st_43": "p_rec_td", "st_53": "p_rec"}
     proj = proj.select("season", "week", "espn_id", "name", "position_id", "pro_team_id",
-                       pl.col("fpts").alias("proj"))
+                       pl.col("fpts").alias("proj"),
+                       *[pl.col(k).fill_null(0.0).alias(v) if k in proj.columns else pl.lit(0.0).alias(v)
+                         for k, v in line.items()])
 
     ids = (load("ff_playerids").select(pl.col("espn_id").cast(pl.Int64, strict=False), "gsis_id")
            .drop_nulls().unique("espn_id"))
@@ -59,10 +64,11 @@ def build(seasons: list[int]) -> pl.DataFrame:
 RELEVANT_TOP_N = {"QB": 24, "RB": 56, "WR": 64, "TE": 24, "K": 24, "D/ST": 24}
 
 
-def relevant(df: pl.DataFrame) -> pl.DataFrame:
+def relevant(df: pl.DataFrame, depth: float = 1.0) -> pl.DataFrame:
+    """Top RELEVANT_TOP_N x depth players per position each week, by ESPN projection."""
     ranked = df.with_columns(pl.col("proj").rank("ordinal", descending=True)
                              .over(["season", "week", "pos"]).alias("pos_rank"))
-    caps = pl.col("pos").replace_strict(RELEVANT_TOP_N, default=0)
+    caps = pl.col("pos").replace_strict(RELEVANT_TOP_N, default=0) * depth
     return ranked.filter((pl.col("pos_rank") <= caps) & (pl.col("proj") > 0))
 
 
