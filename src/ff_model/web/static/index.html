@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Start/Sit</title>
+<title>FFModel</title>
 <style>
 .viz-root {
   color-scheme: light;
@@ -134,7 +134,7 @@ body { overflow-x: hidden; } .card, #main { min-width: 0; }
 <div class="viz-root" id="root">
   <header class="appbar">
   <div class="bar">
-    <div class="brand"><div class="eyebrow">Start/Sit</div><h1 id="title">Weekly Matchup</h1><div class="subtitle" id="subtitle"></div></div>
+    <div class="brand"><div class="eyebrow">FFModel</div><h1 id="title">Weekly Matchup</h1><div class="subtitle" id="subtitle"></div></div>
     <span class="spacer"></span>
     <label class="small secondary">Week <select id="week"></select></label>
     <label class="small secondary">Team <select id="team"></select></label>
@@ -180,7 +180,7 @@ const effectTd = d => `<td class="num" style="${tint(d)}">${Math.abs(d) < 0.1 ? 
 
 const TAB_NAMES = {matchup: "Weekly Matchup", context: "Weekly Context", review: "Weekly Review", season: "Season Overview"};
 function setHeader(sub) { $("#title").textContent = TAB_NAMES[S.tab]; $("#subtitle").innerHTML = sub;
-  document.title = `${TAB_NAMES[S.tab]} · Start/Sit`; }
+  document.title = `${TAB_NAMES[S.tab]} · FFModel`; }
 const S = {weeks: [], teams: [], me: null, week: null, team: null, snapshot: null, tab: "matchup", report: null,
            overrides: {force_in: [], force_out: [], proj_delta: {}}};
 
