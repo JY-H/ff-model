@@ -99,6 +99,24 @@ def snapshot(con, week: int, slot_key: str | None = None, with_odds: bool = Fals
     return sid
 
 
+def backfill_finals(con, week: int) -> int | None:
+    """Archive a finished week's locked lineups and final points (not perishable).
+
+    Stored like a Tuesday prev_week fetch, under slot key <season>-wNN-backfill.
+    """
+    key = f"{SEASON}-w{week:02d}-backfill"
+    if _done(con, key):
+        return None
+    sid = con.execute("INSERT INTO snapshots (slot_key, season, week, started_at, status)"
+                      " VALUES (?,?,?,?, 'running')", (key, SEASON, week + 1, iso(utcnow()))).lastrowid
+    for kind, url, params, status, body in espn.fetch("league", week):
+        save_raw(con, sid, "espn", "prev_week", url, params, status, body)
+    parse_snapshot(con, sid, week + 1)
+    con.execute("UPDATE snapshots SET finished_at=?, status='ok' WHERE id=?", (iso(utcnow()), sid))
+    con.commit()
+    return sid
+
+
 def _done(con, key: str) -> bool:
     return con.execute("SELECT 1 FROM snapshots WHERE slot_key=? AND status IN ('ok','partial')",
                        (key,)).fetchone() is not None

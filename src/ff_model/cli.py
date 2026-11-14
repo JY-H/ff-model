@@ -42,6 +42,10 @@ def main(argv=None) -> None:
     sub.add_parser("install-launchd", help="write the LaunchAgent plist")
     rp = sub.add_parser("reparse", help="rebuild derived tables from raw responses")
     rp.add_argument("snapshot_ids", type=int, nargs="*")
+    bf = sub.add_parser("backfill-finals", help="archive final lineups/points for past weeks")
+    bf.add_argument("weeks", type=int, nargs="+")
+    eh = sub.add_parser("espn-history", help="backfill ESPN weekly projections 2019-2025")
+    eh.add_argument("--seasons", type=int, nargs="*")
     np_ = sub.add_parser("nflverse", help="download nflverse history (current season refreshed)")
     np_.add_argument("--seasons", type=int, nargs="*", help="default: 2012 through this season")
     np_.add_argument("--force", action="store_true", help="re-download completed seasons too")
@@ -53,6 +57,14 @@ def main(argv=None) -> None:
         return
     if args.cmd == "install-launchd":
         install_launchd()
+        return
+    if args.cmd == "espn-history":
+        import polars as pl
+
+        from .research import espn_history
+        espn_history.download(args.seasons)
+        df = espn_history.parse()
+        print(df.group_by("season").agg(weeks=pl.col("week").n_unique(), rows=pl.len()).sort("season"))
         return
     if args.cmd == "nflverse":
         import polars as pl
@@ -72,6 +84,10 @@ def main(argv=None) -> None:
         print(f"snapshot {sid}: {r['status']}" + (f" ({r['error']})" if r["error"] else ""))
     elif args.cmd == "status":
         print(runner.status_report(con))
+    elif args.cmd == "backfill-finals":
+        for w in args.weeks:
+            sid = runner.backfill_finals(con, w)
+            print(f"week {w}: " + (f"snapshot {sid}" if sid else "already archived"))
     elif args.cmd == "reparse":
         ids = args.snapshot_ids or [r["id"] for r in con.execute("SELECT id FROM snapshots")]
         for sid in ids:
