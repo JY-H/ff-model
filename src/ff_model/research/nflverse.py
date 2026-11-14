@@ -33,6 +33,13 @@ SEASONAL = {
     "ff_opportunity": lambda s: nfl.load_ff_opportunity(s, stat_type="weekly"),
     "rosters_weekly": nfl.load_rosters_weekly,  # each player's team per week (known pre-game)
 }
+# play-by-play is ~370 columns; keep what usage/opportunity work needs
+PBP_COLS = ["game_id", "season", "week", "season_type", "posteam", "defteam", "play_type", "down", "yardline_100",
+            "qb_dropback", "pass_attempt", "rush_attempt", "sack", "two_point_attempt", "complete_pass", "yards_gained",
+            "air_yards", "yards_after_catch", "xyac_mean_yardage", "cp", "epa", "touchdown", "pass_touchdown",
+            "rush_touchdown", "passer_player_id", "receiver_player_id", "rusher_player_id"]
+SEASONAL["pbp"] = lambda s: nfl.load_pbp(s).select(PBP_COLS)
+
 # name -> loader for tables that aren't split by season
 STATIC = {
     "ff_playerids": nfl.load_ff_playerids,  # crosswalk incl. espn_id <-> gsis_id

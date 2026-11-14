@@ -263,9 +263,9 @@ def _groups(df: pl.DataFrame) -> list[tuple[str, pl.Expr, list[str]]]:
     ]
 
 
-def screen(df: pl.DataFrame) -> pl.DataFrame:
+def screen(df: pl.DataFrame, groups=None) -> pl.DataFrame:
     rows = []
-    for name, grp, positions in _groups(df):
+    for name, grp, positions in (groups if groups is not None else _groups(df)):
         d = df.with_columns(grp.alias("g")).filter(pl.col("pos").is_in(positions) & pl.col("g").is_not_null())
         for pos in positions:
             dp = d.filter(pl.col("pos") == pos)
