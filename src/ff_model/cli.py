@@ -42,6 +42,9 @@ def main(argv=None) -> None:
     sub.add_parser("install-launchd", help="write the LaunchAgent plist")
     rp = sub.add_parser("reparse", help="rebuild derived tables from raw responses")
     rp.add_argument("snapshot_ids", type=int, nargs="*")
+    np_ = sub.add_parser("nflverse", help="download nflverse history (current season refreshed)")
+    np_.add_argument("--seasons", type=int, nargs="*", help="default: 2012 through this season")
+    np_.add_argument("--force", action="store_true", help="re-download completed seasons too")
     args = ap.parse_args(argv)
     _setup_logging(args.verbose or args.cmd != "tick")
 
@@ -50,6 +53,15 @@ def main(argv=None) -> None:
         return
     if args.cmd == "install-launchd":
         install_launchd()
+        return
+    if args.cmd == "nflverse":
+        import polars as pl
+
+        from .research import nflverse
+        nflverse.pull(args.seasons, force=args.force)
+        print(nflverse.inventory().group_by("dataset").agg(
+            min_season=pl.col("season").min(), max_season=pl.col("season").max(),
+            rows=pl.col("rows").sum()).sort("dataset"))
         return
     con = connect()
     runner.refresh_pro_schedule(con)

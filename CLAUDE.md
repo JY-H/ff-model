@@ -55,7 +55,14 @@ Data: data/archive.db. raw_responses (gzipped JSON) is the source of truth; othe
 Layout: src/ff_model/{config,db,cli}.py are shared. sources/ holds the API clients (espn, odds). archive/ holds slots, runner, wakes, launchd, parse.
 Later phases go in sibling packages (e.g. research/, model/, optimize/, web/).
 
+nflverse history (built)
+`uv run ff-archive nflverse` writes data/nflverse/<dataset>/<season>.parquet for 2012 through the current season. Read it back with research.nflverse.load().
+Datasets: player_stats, team_stats, snap_counts, schedules (spread_line/total_line), injuries, ff_opportunity, and ff_playerids (one table).
+Completed seasons download once; the current season is re-fetched on every run. Run it by hand on Tuesdays, since nothing here is perishable.
+ESPN player_id maps to nflverse gsis_id through ff_playerids.espn_id (all rostered skill players and kickers match). D/ST must join on NFL team instead.
+Leakage: current-season files include games already played this week, and schedules.spread_line for unplayed games is a live line, not a closing one.
+
 Status
-Archiver live as of 2026-11-13; Week 10 is being captured.
-Next: nflverse historical pull, then player distributions.
+Archiver live as of 2026-11-13; Week 10 is being captured. nflverse history pulled 2026-11-13.
+Next: proxy projection (recent usage × implied team total), then player distributions.
 Open: whether to add a second projection source (e.g. FantasyPros consensus).
