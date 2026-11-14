@@ -90,8 +90,14 @@ aside#drawer { position: fixed; top: 0; right: 0; height: 100vh; width: min(560p
   border-left: 1px solid var(--border); box-shadow: -8px 0 24px rgba(0,0,0,.2); overflow-y: auto; padding: 18px 20px 40px;
   transform: translateX(105%); transition: transform .18s ease; z-index: 20; color: var(--text-primary); }
 aside#drawer.open { transform: none; }
-.dtabs { margin: 4px 0 10px; } .dtabs button { padding: 6px 10px; }
-.takeaway { background: var(--surface-0); border-radius: 8px; padding: 10px 12px; margin: 6px 0 10px; line-height: 1.5; }
+.dtabs { margin: 4px 0 12px; } .dtabs button { padding: 6px 10px; }
+.pcard { background: var(--surface-0); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
+.pcard.sum { font-size: 15px; } .pcard .hd { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.ptitle { font-weight: 650; font-size: 13px; margin-bottom: 8px; color: var(--text-primary); }
+.effbadge { font-weight: 650; padding: 2px 8px; border-radius: 6px; background: var(--chip); white-space: nowrap; }
+.pcard .kv div { background: var(--surface-1); } .pcard details summary { color: var(--text-secondary); }
+.pcard .ev { color: var(--text-muted); font-size: 12px; margin: 4px 0 0; }
+.takeaway { line-height: 1.55; }
 .factor { border-top: 1px solid var(--grid); padding: 8px 0; } .factor .hd { display: flex; justify-content: space-between; font-weight: 600; }
 .factor p { margin: 4px 0; } .factor .ev { color: var(--text-muted); font-size: 12px; }
 .kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 6px; }
@@ -484,48 +490,67 @@ function distSvg(p) {
     <div class="legend"><span><svg width="12" height="12"><rect width="12" height="12" fill="var(--me)"/></svg> 80% range (10th–90th)</span>
       <span><svg width="12" height="12"><rect width="12" height="12" fill="var(--me-soft)"/></svg> tails</span><span>bar = chance of scoring in that 1-point band</span></div>`;
 }
+const DTABS = [["overview", "Overview"], ["why", "Why"], ["stats", "Stats & odds"], ["history", "History"]];
 function openDrawer(p) {
   if (!p) return;
   const r = S.report, mine = r.players.me.includes(p), c = p.chance || {}, q = p.quantiles;
-  const total = (p.explain || []).filter(e => e.factor !== "shape").reduce((s, e) => s + (e.effect || 0), 0);
-  const canWhatIf = mine && !p.locked && !p.unavailable;
+  if (!DTABS.some(([k]) => k === S.dtab)) S.dtab = "overview";
+  const live = !p.locked && !p.unavailable;
+  const canWhatIf = mine && live;
+  const total = (p.explain || []).filter(e => !["shape", "teammates"].includes(e.factor)).reduce((a, e) => a + (e.effect || 0), 0);
+  const effLabel = e => e.factor === "shape" ? "" : e.factor === "teammates" ? "info only" : Math.abs(e.effect) < 0.05 ? "no change" : sgn(e.effect);
+  const effStyle = e => ["shape", "teammates"].includes(e.factor) ? "" : tint(e.effect);
+
+  const overview = !live
+    ? `<div class="pcard"><p class="secondary" style="margin:0">${p.unavailable ? "Unavailable this week (bye, IR, Out, or inactive)." : `Game has started: locked at ${pts(p.actual)} points.`}</p></div>`
+    : `<div class="pcard"><p class="takeaway" style="margin:0">${takeaway(p)}</p></div>
+       <div class="pcard"><div class="ptitle">Range of outcomes</div>${distSvg(p)}</div>
+       <div class="pcard"><div class="ptitle">Key numbers</div><div class="kv">
+         <div>ESPN<b>${pts(p.proj)}</b></div><div>Model expects<b>${pts(p.model_mean)}</b></div><div>Typical week<b>${pts(q.p50)}</b></div>
+         <div>80% range<b>${pts(q.p10)}–${pts(q.p90)}</b></div><div>Beats ESPN<b>${pct(c.beat_proj)}</b></div><div>Under 5<b>${pct(c.dud)}</b></div>
+         <div>20+<b>${pct(c.twenty)}</b></div>${p.final != null ? `<div>Actual final<b>${pts(p.final)}</b></div>` : ""}</div></div>
+       ${mine ? `<div class="pcard"><div class="ptitle">In your matchup</div>
+         <p style="margin:0 0 6px">${p.recommended ? `Recommended starter. Best win chance if benched: <b>${pct(p.pwin_if_benched, 1)}</b> (vs ${pct(r.p_win, 1)} now).`
+           : p.pwin_if_started != null ? `On the bench. Best win chance if started: <b>${pct(p.pwin_if_started, 1)}</b> (vs ${pct(r.p_win, 1)} now).` : ""}</p>
+         ${linkItems(p).map(i => `<p class="small" style="margin:4px 0"><span class="chip link ${i.k}">${esc(i.t)}</span> ${esc(i.full)}</p>`).join("")
+           || '<p class="small muted" style="margin:0">No meaningful links to other players in this matchup.</p>'}</div>` : ""}
+       ${canWhatIf ? `<div class="pcard"><div class="ptitle">What if</div><div class="bar">
+         <button onclick="whatif(${p.id}, 'in')">Force start</button><button onclick="whatif(${p.id}, 'out')">Force bench</button>
+         <label class="small">Projection <input id="nudge" type="number" step="0.5" value="${p.nudge || 0}" style="width:76px"> pts</label>
+         <button class="primary" onclick="whatif(${p.id}, 'nudge')">Apply</button></div>
+         <p class="small muted" style="margin:6px 0 0">Recomputes win chance with the change. Use the nudge for news the model can't see.</p></div>` : ""}`;
+
+  const why = !live || !(p.explain || []).length ? `<div class="pcard"><p class="muted" style="margin:0">No model adjustments to explain.</p></div>`
+    : `<div class="pcard sum"><b>ESPN ${pts(p.proj)}</b> ${Math.abs(total) >= 0.05 ? `${total > 0 ? "+" : "−"} ${pts(Math.abs(total))} context` : "+ no context change"} = <b>model ${pts(p.model_mean)}</b></div>
+       ${(p.explain || []).map(e => `<div class="pcard">
+         <div class="hd"><span class="ptitle" style="margin:0">${esc(e.headline)}</span>${effLabel(e) ? `<span class="effbadge" style="${effStyle(e)}">${effLabel(e)}</span>` : ""}</div>
+         ${e.details.map(d => `<p style="margin:6px 0 0">${esc(d)}</p>`).join("")}
+         ${(e.evidence || []).length ? `<details style="margin-top:6px"><summary class="small">Evidence (2019–2025)</summary>${e.evidence.map(d => `<p class="ev">${esc(d)}</p>`).join("")}</details>` : ""}
+       </div>`).join("")}`;
+
+  const stats = `<div class="pcard"><div class="ptitle">ESPN's projected stat line</div>
+      ${p.statline && Object.keys(p.statline).length ? `<div class="kv">${Object.entries(p.statline).map(([k, v]) => `<div>${esc(k)}<b>${pts(v, v < 10 ? 2 : 1)}</b></div>`).join("")}</div>` : '<p class="muted small" style="margin:0">No stat line.</p>'}</div>
+    <div class="pcard"><div class="ptitle">Betting props</div>
+      ${p.props && p.props.length ? `<table><tr><th>Market</th><th>Side</th><th class="num">Line</th><th class="num">Implied</th></tr>
+        ${p.props.map(x => `<tr><td>${esc(x.market)}</td><td>${esc(x.outcome)}</td><td class="num">${x.line != null ? pts(x.line) : "–"}</td><td class="num">${pct(x.implied)}</td></tr>`).join("")}</table>
+        <p class="small muted" style="margin:6px 0 0">Median across sportsbooks; implied = the bookmakers' probability.</p>`
+        : '<p class="muted small" style="margin:0">None archived yet. Props are pulled at the last run before each game locks.</p>'}</div>`;
+
+  const history = historySection(p) || '<div class="pcard"><p class="muted small" style="margin:0">No projection history for this player yet.</p></div>';
+
+  const body = {overview, why, stats, history};
   $("#drawer").innerHTML = `
     <div class="bar"><div><div style="font-size:18px;font-weight:650">${esc(p.name)}</div>
       <div class="pmeta">${esc(p.pos || "")} · ${esc(p.team || "")}${p.opp ? " vs " + esc(p.opp) : " · bye"} · ${p.locked ? "game started" : when(p.kickoff)} · ${mine ? esc(r.me.name) : esc(r.opponent.name)}</div></div>
       <span class="spacer"></span><button onclick="closeDrawer()">Close</button></div>
     <div class="chips" style="margin:8px 0">${statusChips(p)}</div>
-    <div class="tabs dtabs"><button data-dtab="week" class="${S.dtab !== "history" ? "on" : ""}">This week</button><button data-dtab="history" class="${S.dtab === "history" ? "on" : ""}">Projection history</button></div>
-    <div id="dt-history" style="${S.dtab === "history" ? "" : "display:none"}">${historySection(p) || '<p class="muted small" style="margin-top:12px">No projection history for this player yet.</p>'}</div>
-    <div id="dt-week" style="${S.dtab === "history" ? "display:none" : ""}">
-    ${p.unavailable ? `<p class="secondary">Unavailable this week (bye, IR, Out, or inactive).</p>` : p.locked ? `<p class="secondary">Game has started: locked at ${pts(p.actual)} points.</p>` : `
-    <p class="takeaway">${takeaway(p)}</p>
-    ${distSvg(p)}
-    <div class="kv" style="margin-top:10px">
-      <div>ESPN<b>${pts(p.proj)}</b></div><div>Model median<b>${pts(q.p50)}</b></div><div>10th–90th<b>${pts(q.p10)}–${pts(q.p90)}</b></div>
-      <div>25th–75th<b>${pts(q.p25)}–${pts(q.p75)}</b></div><div>Beats ESPN<b>${pct(c.beat_proj)}</b></div><div>Under 5<b>${pct(c.dud)}</b></div><div>20+<b>${pct(c.twenty)}</b></div>
-      ${p.final != null ? `<div>Actual final<b>${pts(p.final)}</b></div>` : ""}
-    </div>
-    <h3>What moved the model's expectation <span class="muted small">(ESPN ${pts(p.proj)}${total ? ` ${sgn(total)} context` : ""} = model ${pts(p.model_mean)})</span></h3>
-    ${(p.explain || []).map(e => `<div class="factor"><div class="hd"><span>${esc(e.headline)}</span><span>${e.factor === "shape" ? "" : e.factor === "teammates" ? "info only" : (Math.abs(e.effect) < 0.05 ? "no change" : sgn(e.effect))}</span></div>
-      ${e.details.map(d => `<p>${esc(d)}</p>`).join("")}${(e.evidence || []).map(d => `<p class="ev">${esc(d)}</p>`).join("")}</div>`).join("")}
-    ${p.statline && Object.keys(p.statline).length ? `<h3>ESPN's projected stat line</h3><div class="kv">${Object.entries(p.statline).map(([k, v]) => `<div>${esc(k)}<b>${pts(v, v < 10 ? 2 : 1)}</b></div>`).join("")}</div>` : ""}
-    ${p.props && p.props.length ? `<h3>Betting props (median across books)</h3><table><tr><th>Market</th><th>Side</th><th class="num">Line</th><th class="num">Implied</th></tr>
-      ${p.props.map(x => `<tr><td>${esc(x.market)}</td><td>${esc(x.outcome)}</td><td class="num">${x.line != null ? pts(x.line) : "–"}</td><td class="num">${pct(x.implied)}</td></tr>`).join("")}</table>`
-      : `<p class="muted small">No player props archived for this snapshot (props are pulled at the last run before each game locks).</p>`}
-    ${mine ? `<h3>Links in this lineup</h3>${linkItems(p).map(i => `<p class="small"><span class="chip link ${i.k}">${esc(i.t)}</span> ${esc(i.full)}</p>`).join("") || '<p class="muted small">No meaningful links (correlations under 0.05).</p>'}
-      <h3>Win probability</h3><p>${p.recommended ? `Recommended starter. Best P(win) if benched: <b>${pct(p.pwin_if_benched, 1)}</b> (vs ${pct(r.p_win, 1)}).` : p.pwin_if_started != null ? `On the bench. Best P(win) if started: <b>${pct(p.pwin_if_started, 1)}</b> (vs ${pct(r.p_win, 1)}).` : ""}</p>` : ""}
-    ${canWhatIf ? `<h3>What if</h3><div class="bar">
-      <button onclick="whatif(${p.id}, 'in')">Force start</button><button onclick="whatif(${p.id}, 'out')">Force bench</button>
-      <label class="small">Projection <input id="nudge" type="number" step="0.5" value="${p.nudge || 0}" style="width:80px"> pts</label>
-      <button class="primary" onclick="whatif(${p.id}, 'nudge')">Apply</button></div>
-      <p class="small muted">Recomputes P(win) with the change. Use the projection nudge for news the model can't see (e.g. a role change).</p>` : ""}`}
-    </div>`;
+    <div class="tabs dtabs">${DTABS.map(([k, lab]) => `<button data-dtab="${k}" class="${S.dtab === k ? "on" : ""}">${lab}</button>`).join("")}</div>
+    ${DTABS.map(([k]) => `<div class="dpane" id="dt-${k}" style="${S.dtab === k ? "" : "display:none"}">${body[k]}</div>`).join("")}`;
   $("#drawer").classList.add("open");
   document.querySelectorAll("[data-dtab]").forEach(b => b.onclick = () => {
     S.dtab = b.dataset.dtab;
     document.querySelectorAll("[data-dtab]").forEach(x => x.classList.toggle("on", x.dataset.dtab === S.dtab));
-    $("#dt-history").style.display = S.dtab === "history" ? "" : "none";
-    $("#dt-week").style.display = S.dtab === "history" ? "none" : "";
+    DTABS.forEach(([k]) => $("#dt-" + k).style.display = S.dtab === k ? "" : "none");
   });
   document.querySelectorAll("rect.hbar").forEach(el => { el.onmousemove = e => { const x = S.histRows[+el.dataset.i];
       showTip(e, `Week ${x.week}: ESPN ${pts(x.proj)}, scored ${pts(x.actual)} (${sgn((x.actual || 0) - (x.proj || 0))})`); }; el.onmouseleave = hideTip; });
@@ -547,13 +572,13 @@ function historySection(p) {
   let out = "";
   // this week: ESPN's projection at each snapshot, with what changed on his team
   if (h.week.length) {
-    out += `<h3>ESPN's projection this week</h3><table><tr><th>Snapshot</th><th class="num">ESPN</th><th class="num">Change</th><th>Status</th><th>What changed on his team</th></tr>
+    out += `<div class="pcard"><div class="ptitle">ESPN's projection this week</div><table><tr><th>Snapshot</th><th class="num">ESPN</th><th class="num">Change</th><th>Status</th><th>What changed on his team</th></tr>
       ${h.week.map((x, i) => { const d = i ? x.proj - h.week[i - 1].proj : null;
         return `<tr><td class="small">${when(x.at)}${x.slot ? ` <span class="muted">· ${esc(x.slot.split("-").pop())}</span>` : ""}</td>
           <td class="num">${pts(x.proj)}</td><td class="num" style="${d != null ? tint(d, 3) : ""}">${d == null ? "–" : Math.abs(d) < 0.05 ? "±0" : sgn(d)}</td>
           <td class="small">${esc((x.status || "").replace("_", " ").toLowerCase())}</td>
           <td class="small">${(x.team_changes || []).map(esc).join("<br>") || '<span class="muted">–</span>'}</td></tr>`; }).join("")}</table>
-      ${h.week.length < 2 ? `<p class="small muted">Only one snapshot so far this week; changes appear as more are taken.</p>` : ""}`;
+      ${h.week.length < 2 ? `<p class="small muted">Only one snapshot so far this week; changes appear as more are taken.</p>` : ""}</div>`;
   }
   // season: ESPN's projection vs what he scored
   const sz = h.season.filter(x => x.proj > 0 || x.actual > 0);
@@ -565,12 +590,12 @@ function historySection(p) {
       <path d="M ${x0(i) + bw / 2} ${y(x.proj) - 6} l 6 6 l -6 6 l -6 -6 z" fill="var(--text-primary)" stroke="var(--surface-1)" stroke-width="1.5" pointer-events="none"/>
       <text x="${x0(i) + bw / 2}" y="${H - 5}" font-size="10" text-anchor="middle" fill="var(--text-muted)">W${x.week}</text>`).join("");
     const avgP = sz.reduce((a, x) => a + (x.proj || 0), 0) / n, avgA = sz.reduce((a, x) => a + (x.actual || 0), 0) / n;
-    out += `<h3>Season: ESPN's projection vs. what he scored</h3>
+    out += `<div class="pcard"><div class="ptitle">Season: ESPN's projection vs. what he scored</div>
       <svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Weekly ESPN projections and actual scores">
         <line x1="10" x2="${W - 10}" y1="${H - padB}" y2="${H - padB}" stroke="var(--border)"/>${bars}</svg>
       <div class="legend"><span><svg width="12" height="12"><rect width="12" height="12" rx="3" fill="var(--me-soft)" stroke="var(--me)"/></svg> actual</span>
         <span><svg width="12" height="12"><path d="M 6 0 l 6 6 l -6 6 l -6 -6 z" fill="var(--text-primary)"/></svg> ESPN projection</span>
-        <span>Average: projected ${pts(avgP)}, scored ${pts(avgA)} over ${n} games${sz.some(x => x.played === false) ? " (weeks he didn't play count as 0)" : ""}</span></div>`;
+        <span>Average: projected ${pts(avgP)}, scored ${pts(avgA)} over ${n} games${sz.some(x => x.played === false) ? " (weeks he didn't play count as 0)" : ""}</span></div></div>`;
     S.histRows = sz;
   }
   return out;
