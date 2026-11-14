@@ -116,6 +116,7 @@ def factor_frame(seasons=SEASONS, depth: float = 1.0, with_u: bool = True) -> pl
 
     df = _add_return_from_absence(df, seasons)
     df = _add_mismatch(df)
+    df = _add_line_injuries(df, seasons)
 
     # --- where the actual landed in the player's predicted range ---
     if with_u:
@@ -148,6 +149,17 @@ def _add_return_from_absence(df: pl.DataFrame, seasons=SEASONS) -> pl.DataFrame:
             streak, ir = 0, False
     ra = pl.DataFrame(rows, schema=["gsis_id", "season", "week", "games_missed", "games_back", "from_ir"], orient="row")
     return df.join(ra, on=["gsis_id", "season", "week"], how="left")
+
+
+def _add_line_injuries(df: pl.DataFrame, seasons=SEASONS, line=None) -> pl.DataFrame:
+    """Own OL starters out, opponent OL and DB starters out (injury-report based)."""
+    from .line_injuries import starters_out
+    so = line if line is not None else starters_out(list(seasons))
+    own = so.select("season", "week", "team", "ol_out")
+    opp = so.select("season", "week", pl.col("team").alias("opp"), pl.col("ol_out").alias("opp_ol_out"),
+                    pl.col("db_out").alias("opp_db_out"))
+    return (df.join(own, on=["season", "week", "team"], how="left")
+              .join(opp, on=["season", "week", "opp"], how="left"))
 
 
 def _add_mismatch(df: pl.DataFrame) -> pl.DataFrame:

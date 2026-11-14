@@ -18,7 +18,8 @@ import polars as pl
 
 from ..archive.context import espn_abbr
 from ..config import DB_PATH, SEASON
-from ..research.factor_tests import _add_return_from_absence
+from ..research.factor_tests import _add_line_injuries, _add_return_from_absence
+from ..research.line_injuries import starters_out
 from ..research.nflverse import load
 from ..research.projection_errors import POS
 from .marginals import MODEL_PATH, TAUS, Marginals
@@ -112,7 +113,16 @@ def build_inputs(snapshot_id: int | None = None) -> pl.DataFrame:
         df = df.join(inj.unique("gsis_id"), on="gsis_id", how="left")
 
     df = _add_return_from_absence(df, [SEASON])
-    for c in ["roof", "temp", "wind", "exp_margin", "practice_status", "injury", "games_back"]:
+
+    # OL / DB starters out: this week from the archived injury report only
+    if isid:
+        rep = _q(con, "SELECT season, week, gsis_id, report_status FROM injury_reports WHERE snapshot_id=?", (isid,))
+        rep = rep.with_columns(pl.col("season").cast(pl.Int64), pl.col("week").cast(pl.Int64))
+        line = starters_out([SEASON], extra_injuries=rep, asof_week=week).filter(pl.col("week") == week)
+        df = _add_line_injuries(df, [SEASON], line=line)
+
+    for c in ["roof", "temp", "wind", "exp_margin", "practice_status", "injury", "games_back",
+              "ol_out", "opp_ol_out", "opp_db_out"]:
         if c not in df.columns:
             df = df.with_columns(pl.lit(None).alias(c))
     return df.with_columns(pl.lit(snapshot_id).alias("snapshot_id"))

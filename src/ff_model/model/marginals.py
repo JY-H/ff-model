@@ -55,15 +55,19 @@ def context(df: pl.DataFrame) -> pl.DataFrame:
         (listed & practice.str.contains("Limited")).cast(pl.Float64).alias("c_q_limited"),
         (listed & ~practice.str.contains("Did Not|Limited")).cast(pl.Float64).alias("c_q_other"),
         col("games_back", 0).fill_null(0).is_between(1, 2).cast(pl.Float64).alias("c_return"),
+        # starters out per the injury report (Out/Doubtful/IR), capped at 3
+        col("ol_out", 0).fill_null(0).clip(0, 3).cast(pl.Float64).alias("c_ol_out"),
+        col("opp_ol_out", 0).fill_null(0).clip(0, 3).cast(pl.Float64).alias("c_opp_ol_out"),
+        col("opp_db_out", 0).fill_null(0).clip(0, 3).cast(pl.Float64).alias("c_opp_db_out"),
     )
 
 
 WEATHER = ["c_dome", "c_wind", "c_cold"]
 INJURY = ["c_q_dnp", "c_q_limited", "c_q_other", "c_return"]
 # QB injury terms dropped: ~80 listed-QB weeks in training, and they hurt out of sample.
-CONTEXT = {"QB": WEATHER + ["c_margin"], "RB": ["c_margin"] + INJURY,
+CONTEXT = {"QB": WEATHER + ["c_margin", "c_ol_out", "c_opp_db_out"], "RB": ["c_margin", "c_ol_out"] + INJURY,
            "WR": WEATHER + ["c_margin"] + INJURY, "TE": WEATHER + ["c_margin"] + INJURY,
-           "K": WEATHER + ["c_margin"], "D/ST": ["c_margin"]}
+           "K": WEATHER + ["c_margin"], "D/ST": ["c_margin", "c_opp_ol_out"]}
 
 # design columns per position: proj plus proj x share interactions
 SHARES = {"QB": ["f_pass_td_share", "f_rush_share"],
@@ -76,13 +80,12 @@ SHARES = {"QB": ["f_pass_td_share", "f_rush_share"],
 CURVED = {"QB", "RB", "WR", "TE"}
 
 
-def _design(df: pl.DataFrame, pos: str, use_context: bool) -> np.ndarray:
+def _design(df: pl.DataFrame, pos: str, context_cols: list[str]) -> np.ndarray:
     # sqrt(proj) lets the spread bend with projection size instead of growing linearly
     proj = df["proj"].to_numpy()
     cols = [proj] + ([np.sqrt(np.clip(proj, 0, None))] if pos in CURVED else [])
     cols += [proj * df[c].to_numpy() for c in SHARES[pos]]
-    if use_context:
-        cols += [proj * df[c].to_numpy() for c in CONTEXT[pos]]
+    cols += [proj * df[c].to_numpy() for c in context_cols]
     return np.column_stack(cols)
 
 
@@ -90,6 +93,10 @@ def _design(df: pl.DataFrame, pos: str, use_context: bool) -> np.ndarray:
 class Marginals:
     coefs: dict[str, list[list[float]]] = field(default_factory=dict)  # pos -> per tau [intercept, *betas]
     use_context: bool = False
+    context_cols: dict[str, list[str]] = field(default_factory=dict)  # frozen at fit time
+
+    def _ctx(self, pos: str) -> list[str]:
+        return self.context_cols.get(pos, []) if self.use_context else []
 
     def _prep(self, df: pl.DataFrame) -> pl.DataFrame:
         df = features(df)
@@ -97,9 +104,10 @@ class Marginals:
 
     def fit(self, train: pl.DataFrame, alpha: float = 0.0) -> "Marginals":
         train = self._prep(train)
+        self.context_cols = {p: list(CONTEXT[p]) for p in SHARES} if self.use_context else {}
         for pos in SHARES:
             d = train.filter(pl.col("pos") == pos)
-            X, y = _design(d, pos, self.use_context), d["actual"].to_numpy()
+            X, y = _design(d, pos, self._ctx(pos)), d["actual"].to_numpy()
             rows = []
             for tau in TAUS:
                 m = QuantileRegressor(quantile=tau, alpha=alpha, solver="highs").fit(X, y)
@@ -116,7 +124,7 @@ class Marginals:
             idx = np.flatnonzero(pos == p)
             if idx.size == 0:
                 continue
-            X = _design(df[idx], p, self.use_context)
+            X = _design(df[idx], p, self._ctx(p))
             B = np.array(rows)  # (tau, 1 + k)
             out[idx] = B[:, 0] + X @ B[:, 1:].T
         return np.maximum.accumulate(out, axis=1)  # no crossing
@@ -124,12 +132,13 @@ class Marginals:
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps({"taus": TAUS.tolist(), "use_context": self.use_context,
-                                    "coefs": self.coefs}, indent=1))
+                                    "context_cols": self.context_cols, "coefs": self.coefs}, indent=1))
 
     @classmethod
     def load(cls, path: Path) -> "Marginals":
         d = json.loads(path.read_text())
-        return cls(coefs=d["coefs"], use_context=d.get("use_context", False))
+        return cls(coefs=d["coefs"], use_context=d.get("use_context", False),
+                   context_cols=d.get("context_cols", {}))
 
 
 def cdf(q: np.ndarray, y: np.ndarray, rng: np.random.Generator | None = None) -> np.ndarray:
