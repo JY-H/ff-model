@@ -54,7 +54,14 @@ td { padding: 6px; border-bottom: 1px solid var(--grid); vertical-align: middle;
 .h2h td.slot { text-align: center; font-weight: 600; color: var(--text-secondary); font-size: 12px; background: var(--surface-0); width: 52px; }
 .h2h td.r { text-align: right; } .h2h .rec { box-shadow: inset 3px 0 0 var(--me); }
 .three tr.diffrow td:not([style*="background"]) { background: var(--hl); } .ctr { text-align: center; }
-tr.gamehdr td { background: var(--surface-0); border-top: 1px solid var(--border); padding-top: 8px; }
+table.bygame { border-collapse: separate; border-spacing: 0; }
+table.bygame tr.gap td { height: 14px; border: none; padding: 0; }
+table.bygame tr.gamehdr td { background: var(--chip); border: none; padding: 9px 12px; border-radius: 8px 8px 0 0; }
+table.bygame tr.gamehdr .gm { font-size: 15px; font-weight: 700; letter-spacing: .2px; margin-right: 10px; }
+table.bygame tr.gamehdr .gd { font-size: 12px; color: var(--text-secondary); }
+table.bygame tr.prow td:first-child { padding-left: 26px; }
+table.bygame tr.prow .pname { font-weight: 500; }
+table.bygame tr.prow td { border-bottom: 1px solid var(--grid); }
 .swaps { border-left: 4px solid var(--me); } .swaps.ok { border-left-color: var(--good); }
 .swaps.urgent { border-left-color: var(--critical); } tr.urgentrow td { background: color-mix(in srgb, var(--critical) 14%, transparent); }
 .dsmall { font-size: 11px; color: var(--text-secondary); margin-left: 3px; }
@@ -488,7 +495,7 @@ function renderContext(c, r) {
     const inj = [p.status && p.status !== "none" ? p.status : "", p.practice && p.status && p.status !== "none" ? p.practice.replace(" Participation in Practice", " practice").replace(" In Practice", "") : "",
                  p.injury || "", p.games_back === 1 || p.games_back === 2 ? (p.games_back === 1 ? "1st" : "2nd") + " game back" : ""].filter(Boolean).join(" · ");
     const total = Object.values(p.effects || {}).reduce((a, b) => a + b, 0);
-    return `<tr class="clickable" data-player="${p.id}"><td><span class="pname">${esc(p.name)}</span> <span class="pmeta">${esc(p.pos)} · ${esc(p.team)} vs ${esc(p.opp)}${starters.has(p.id) ? "" : " · bench"}</span></td>
+    return `<tr class="clickable prow" data-player="${p.id}"><td><span class="pname">${esc(p.name)}</span> <span class="pmeta">${esc(p.pos)} · ${esc(p.team)}${starters.has(p.id) ? "" : " · bench"}</span></td>
       <td class="small">${side}</td>
       <td class="small">${esc(inj) || '<span class="muted">–</span>'}</td>
       <td class="small">${lines ? esc(lines.details.filter(d => !d.startsWith("Starters =")).join(" ")) : '<span class="muted">–</span>'}</td>
@@ -503,15 +510,16 @@ function renderContext(c, r) {
     const p0 = list[0][0], g = c.games.find(x => [x.home, x.away].sort().join("-") === gkey(p0)) || {};
     list.sort((a, b) => (starters.has(b[0].id) - starters.has(a[0].id)) || (a[1] === "You" ? -1 : 1) - (b[1] === "You" ? -1 : 1) || b[0].proj - a[0].proj);
     const line = g.home_spread != null ? `${esc(g.home)} ${sgn(g.home_spread)}` : "";
-    return `<tr class="gamehdr"><td colspan="5"><b>${esc(g.away || p0.team)} @ ${esc(g.home || p0.opp)}</b>
-        <span class="secondary small"> · ${when(p0.kickoff)} · ${esc(weatherText(p0))}${line ? " · " + line : ""}${g.total ? " · O/U " + pts(g.total) : ""}${g.score ? " · final " + esc(g.score) : ""}</span></td></tr>
+    return `<tr class="gap"><td colspan="5"></td></tr>
+      <tr class="gamehdr"><td colspan="5"><span class="gm">${esc(g.away || p0.team)} @ ${esc(g.home || p0.opp)}</span>
+        <span class="gd">${when(p0.kickoff)} · ${esc(weatherText(p0))}${line ? " · " + line : ""}${g.total ? " · O/U " + pts(g.total) : ""}${g.score ? " · final " + esc(g.score) : ""}</span></td></tr>
       ${list.map(([p, side]) => ctxRow(p, side)).join("")}`;
   }).join("");
   $("#main").innerHTML = `
     <p class="secondary small" style="margin-top:10px">${c.source === "live" ? `What the archive held at snapshot #${c.snapshot_id}.` : "Replay week: weather measured at game time, closing lines, final injury reports."}
       Showing ${esc(r.me.name)} vs ${esc(r.opponent.name)}; change the team above to see another matchup.</p>
     <h2>Your matchup</h2>
-    <div class="card scroll"><table>
+    <div class="card scroll"><table class="bygame">
       <tr><th>Player</th><th>Team</th><th>Injury report</th><th>OL / secondary out</th><th class="num">Context effect</th></tr>
       ${gameRows}</table>
       <p class="small muted" style="margin:6px 0 0">Grouped by game in kickoff order; within a game, starters first. Click a player for the full explanation. OL/DB notes appear where the model uses them (own OL for QB/RB, opponent OL for D/ST, opponent secondary for QB).</p></div>
