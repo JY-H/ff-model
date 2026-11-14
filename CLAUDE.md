@@ -43,8 +43,8 @@ Head-to-head is a win/lose payoff, so variance and correlation with the opponent
 | 2. Historical data | ✅ nflverse + ESPN projections 2019–2025 + league scoring |
 | 3. Player distributions | ✅ Quantile model with context (weather, spread, injuries, OL/DB) |
 | 4. Correlation model | ✅ Role-pair copula, validated on 2024–2025 sums |
-| 5. Optimizer + late swap | ✅ `recommend` command; web page not built yet |
-| 6. Backtest and live tracking | ⏭️ Next |
+| 5. Optimizer + late swap | ✅ `recommend` command and `web` page |
+| 6. Backtest and live tracking | 🟡 League 2026 W1–9 done; synthetic 2019–2025 next |
 
 ### 1. Archiver ✅
 
@@ -155,6 +155,7 @@ Later phases go in sibling packages (`model/`, `optimize/`, `web/`).
 | `fit-marginals` | refit player distributions on 2019–2025 (~4 min) |
 | `fit-correlation` | re-estimate role-pair correlations |
 | `recommend [--snapshot N]` | best lineup by P(win) for my matchup from the latest (or given) snapshot |
+| `web` | open the recommendation page at http://127.0.0.1:8765 (local only) |
 
 **Data** (all under `data/`, gitignored, only on this laptop):
 
