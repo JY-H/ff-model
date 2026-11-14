@@ -103,8 +103,25 @@ CREATE TABLE IF NOT EXISTS odds_ledger (
     status_code INTEGER,
     credits_last INTEGER,
     credits_used INTEGER,
-    credits_remaining INTEGER
+    credits_remaining INTEGER,
+    kind TEXT                   -- odds (game lines) | props
 );
+
+CREATE TABLE IF NOT EXISTS prop_lines (
+    snapshot_id INTEGER NOT NULL,
+    event_id TEXT NOT NULL,
+    commence_time TEXT,
+    home_team TEXT,
+    away_team TEXT,
+    bookmaker TEXT NOT NULL,
+    last_update TEXT,
+    market TEXT NOT NULL,       -- player_anytime_td, player_receptions, ...
+    player_name TEXT NOT NULL,  -- as the book spells it; not yet mapped to ESPN ids
+    outcome TEXT NOT NULL,      -- Over | Under | Yes
+    price REAL,
+    point REAL
+);
+CREATE INDEX IF NOT EXISTS prop_lines_snapshot ON prop_lines(snapshot_id);
 
 CREATE TABLE IF NOT EXISTS pro_games (
     season INTEGER NOT NULL,
@@ -139,7 +156,16 @@ def connect() -> sqlite3.Connection:
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA journal_mode=WAL")
     con.executescript(SCHEMA)
+    _migrate(con)
     return con
+
+
+def _migrate(con) -> None:
+    cols = {r["name"] for r in con.execute("PRAGMA table_info(odds_ledger)")}
+    if "kind" not in cols:
+        con.execute("ALTER TABLE odds_ledger ADD COLUMN kind TEXT")
+        con.execute("UPDATE odds_ledger SET kind='odds'")
+        con.commit()
 
 
 def save_raw(con, snapshot_id, source, kind, url, params, status_code, body) -> int:

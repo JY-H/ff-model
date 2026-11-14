@@ -25,6 +25,7 @@ class Slot:
     at: datetime        # tz-aware ET
     deadline: datetime  # don't run after this (the lock it serves, or next slot)
     reason: str
+    last_kick: datetime | None = None  # latest kickoff this slot is the final run before
 
 
 def _at(day: datetime, hh: int, mm: int) -> datetime:
@@ -38,6 +39,7 @@ def week_slots(week: int, kickoffs: list[datetime]) -> list[Slot]:
     first, last = kicks[0], kicks[-1]
     tue = first - timedelta(days=(first.weekday() - 1) % 7)
     raw: dict[datetime, tuple[str, str, datetime]] = {}
+    covers: dict[datetime, datetime] = {}
 
     def add(at, name, reason, deadline):
         if at < deadline and at not in raw:
@@ -53,6 +55,7 @@ def week_slots(week: int, kickoffs: list[datetime]) -> list[Slot]:
         else:
             at, why = k - timedelta(minutes=60), f"60 min before {k:%a %H:%M} kickoff"
         add(at, f"{at:%a_%H%M}".lower(), why, k)
+        covers[at] = max(covers.get(at, k), k)
 
     add(_at(tue, 12, 0), "tue", "start of week + last week's finals", last)
     add(_at(tue + timedelta(days=1), 12, 0), "wed", "after Wednesday waivers", last)
@@ -63,7 +66,8 @@ def week_slots(week: int, kickoffs: list[datetime]) -> list[Slot]:
     for i, at in enumerate(times):
         name, why, lock = raw[at]
         nxt = times[i + 1] if i + 1 < len(times) else lock
-        out.append(Slot(f"{SEASON}-w{week:02d}-{name}", week, at, min(lock, max(nxt, at + timedelta(minutes=20))), why))
+        out.append(Slot(f"{SEASON}-w{week:02d}-{name}", week, at,
+                        min(lock, max(nxt, at + timedelta(minutes=20))), why, covers.get(at)))
     return out
 
 

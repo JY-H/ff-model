@@ -41,7 +41,10 @@ Watch for lookahead leakage: only use data available at lineup lock.
 League facts (from ESPN settings)
 League 765545014, season 2026, my team ID 9. Lineup: QB, RB×2, WR×2, TE, FLEX, D/ST, K; 7 bench, 1 IR.
 Lock type INDIVIDUAL_GAME, so late swap is possible. Waivers process Mon and Wed–Sun (not Tue).
-The Odds API free tier: 500 credits/month. Each /odds call costs 2 (spreads + totals, us region). The archiver stops calling below 40 remaining.
+The Odds API free tier: 500 credits/month (assumed to reset on the 1st). Game lines cost 2 per call (spreads + totals) and run at every slot.
+Player props cost 1 credit per market per game. Each game is pulled once, at the last slot before it locks.
+Markets in priority order: anytime TD, receptions, receiving yds, rushing yds, passing yds. A planner drops markets from the end so the rest of the month fits.
+The archiver stops calling below 40 remaining.
 
 Archiver (built)
 `uv run ff-archive status | snapshot [--odds] [--prev-week] | reparse | tick`

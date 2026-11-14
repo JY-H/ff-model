@@ -27,14 +27,18 @@ ESPN_LEAGUE_URL = (
 )
 ESPN_SEASON_URL = f"https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/{SEASON}"
 
-# The Odds API free tier: 500 credits/month. /odds costs (#markets x #regions)
-# credits per call, so spreads+totals in "us" = 2 credits.
-ODDS_URL = "https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds"
+# The Odds API free tier: 500 credits/month, assumed to reset on the 1st (UTC).
+# Cost = #markets x #regions per call: game lines (all games, one call) = 2;
+# player props (one call per game) = 1 per market. /events is free.
+ODDS_BASE = "https://api.the-odds-api.com/v4/sports/americanfootball_nfl"
 ODDS_MARKETS = "spreads,totals"
 ODDS_REGIONS = "us"
 ODDS_CREDITS_PER_CALL = 2
 ODDS_REMAINING_FLOOR = 40  # never spend the last credits; leave room for manual use
-ODDS_MIN_GAP_MINUTES = 30  # don't refetch odds more often than this
+ODDS_MIN_GAP_MINUTES = 30  # don't refetch game lines more often than this
+# Highest value first; the budget planner drops markets from the end when short.
+PROP_MARKETS = ["player_anytime_td", "player_receptions", "player_reception_yds",
+                "player_rush_yds", "player_pass_yds"]
 
 
 def _env() -> dict[str, str]:

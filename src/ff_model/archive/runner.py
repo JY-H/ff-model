@@ -39,8 +39,19 @@ def current_week(con) -> int:
     return row["week"]
 
 
+def _props_window(con, slot: Slot, now: datetime):
+    """Games this slot is the last chance for, plus what the rest of the month needs."""
+    start, end = max(slot.at, now), slot.last_kick or slot.at  # fixed slots: no props
+    month_end = odds.month_end(now)
+    games_later = con.execute("SELECT COUNT(*) AS n FROM pro_games WHERE season=? AND"
+                              " kickoff_utc > ? AND kickoff_utc < ?",
+                              (SEASON, iso(end), iso(month_end))).fetchone()["n"]
+    slots_later = sum(1 for s in all_slots(con) if slot.at < s.at < month_end)
+    return start, end, games_later, slots_later
+
+
 def snapshot(con, week: int, slot_key: str | None = None, with_odds: bool = False,
-             prev_week: bool = False, settings: bool = False) -> int:
+             prev_week: bool = False, settings: bool = False, slot: Slot | None = None) -> int:
     sid = con.execute("INSERT INTO snapshots (slot_key, season, week, started_at, status)"
                       " VALUES (?,?,?,?, 'running')",
                       (slot_key, SEASON, week, iso(utcnow()))).lastrowid
@@ -60,12 +71,19 @@ def snapshot(con, week: int, slot_key: str | None = None, with_odds: bool = Fals
             errors.append(f"{kind}: {e}")
     if with_odds:
         try:
-            res = odds.fetch(con, sid)
+            res = odds.fetch_game_lines(con, sid)
             if res:
                 save_raw(con, sid, "odds", "odds", *res)
         except Exception as e:
-            log.error("odds failed: %s", type(e).__name__)
+            log.error("game lines failed: %s", type(e).__name__)
             errors.append(f"odds: {type(e).__name__}")
+    if with_odds and slot is not None:
+        try:
+            for res in odds.fetch_props(con, sid, *_props_window(con, slot, utcnow())):
+                save_raw(con, sid, "odds", "props", *res)
+        except Exception as e:
+            log.error("props failed: %s", type(e).__name__)
+            errors.append(f"props: {type(e).__name__}")
     try:
         parse_snapshot(con, sid, week)
     except Exception:
@@ -109,7 +127,7 @@ def tick() -> None:
         if slot:
             name = slot.key.rsplit("-", 1)[1]
             snapshot(con, slot.week, slot.key, with_odds=True,
-                     prev_week=(name == "tue"), settings=(name == "tue"))
+                     prev_week=(name == "tue"), settings=(name == "tue"), slot=slot)
         try:
             schedule_wakes(con, now)
         except Exception as e:
@@ -129,4 +147,12 @@ def status_report(con) -> str:
                      + (f" ({r['error']})" if r["error"] else ""))
     c = odds.credits_status(con)
     lines.append(f"odds credits remaining: {c['credits_remaining'] if c else 'unknown (no calls yet)'}")
+    nxt = next((s for s in all_slots(con) if s.at > now), None)
+    if nxt:
+        _, _, later, slots_later = _props_window(con, nxt, now)
+        games_now = con.execute("SELECT COUNT(*) AS n FROM pro_games WHERE season=? AND kickoff_utc > ?"
+                                " AND kickoff_utc <= ?", (SEASON, iso(nxt.at), iso(nxt.last_kick or nxt.at))).fetchone()["n"]
+        plan = odds.plan_prop_markets(odds._remaining(con), games_now, later, slots_later)
+        lines.append(f"props plan if run now: {len(plan)} markets {plan} "
+                     f"({games_now + later} games and {slots_later} line calls left this month)")
     return "\n".join(lines)

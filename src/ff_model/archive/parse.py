@@ -16,7 +16,7 @@ def _weekly(stats, source: int, week: int):
 
 
 def parse_snapshot(con, snapshot_id: int, week: int) -> None:
-    for t in ("player_snapshots", "lineups", "matchups", "odds_lines"):
+    for t in ("player_snapshots", "lineups", "matchups", "odds_lines", "prop_lines"):
         con.execute(f"DELETE FROM {t} WHERE snapshot_id=?", (snapshot_id,))
     rows = con.execute("SELECT * FROM raw_responses WHERE snapshot_id=? AND status_code=200",
                        (snapshot_id,)).fetchall()
@@ -29,6 +29,8 @@ def parse_snapshot(con, snapshot_id: int, week: int) -> None:
             _league(con, snapshot_id, period, body)
         elif row["kind"] == "odds":
             _odds(con, snapshot_id, body)
+        elif row["kind"] == "props":
+            _props(con, snapshot_id, body)
     con.commit()
 
 
@@ -75,6 +77,16 @@ def _odds(con, sid, body):
                                 (sid, ev["id"], ev.get("commence_time"), ev.get("home_team"),
                                  ev.get("away_team"), bk["key"], mk.get("last_update"),
                                  mk["key"], oc["name"], oc.get("price"), oc.get("point")))
+
+
+def _props(con, sid, ev):
+    for bk in (ev or {}).get("bookmakers", []):
+        for mk in bk.get("markets", []):
+            for oc in mk.get("outcomes", []):
+                con.execute("INSERT INTO prop_lines VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                            (sid, ev["id"], ev.get("commence_time"), ev.get("home_team"),
+                             ev.get("away_team"), bk["key"], mk.get("last_update"), mk["key"],
+                             oc.get("description"), oc["name"], oc.get("price"), oc.get("point")))
 
 
 def store_pro_games(con, season: int, body) -> int:
