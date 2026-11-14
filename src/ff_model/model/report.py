@@ -374,8 +374,19 @@ def build_report(week: int | None = None, team_id: int | None = None, snapshot_i
     actual_start = set(mine.filter(~pl.col("slot").is_in([BENCH, IR]))["player_id"])
 
     my_start_rows = mine.filter(pl.col("player_id").is_in(list(best_ids)) | (pl.col("locked") & ~pl.col("slot").is_in([BENCH, IR])))
-    my_games = {(r["game"], r["team"], r["pos"], r["name"]) for r in my_start_rows.iter_rows(named=True) if r["game"]}
-    opp_games = {(r["game"], r["team"], r["pos"], r["name"]) for r in opp_start.iter_rows(named=True) if r["game"]}
+    my_games = {(r["game"], r["team"], r["pos"], r["name"], r["role"]) for r in my_start_rows.iter_rows(named=True) if r["game"]}
+    opp_games = {(r["game"], r["team"], r["pos"], r["name"], r["role"]) for r in opp_start.iter_rows(named=True) if r["game"]}
+    cm = C.load()
+    ridx = {x: i for i, x in enumerate(cm["roles"])}
+
+    def pair_corr(role_a, team_a, role_b, team_b):
+        """Estimated correlation of two players' outcomes (role-pair copula)."""
+        if role_a not in ridx or role_b not in ridx:
+            return 0.0
+        m = cm["same"] if team_a == team_b else cm["opp"]
+        if team_a == team_b and role_a == role_b:
+            return 0.0
+        return float(m[ridx[role_a]][ridx[role_b]])
     totals = _totals(con, sid, week)
     line_who = _line_who(source, sid, week)
     vac_who = _vacated_who(source, sid, week)
@@ -429,10 +440,14 @@ def build_report(week: int | None = None, team_id: int | None = None, snapshot_i
                            maxproj_slot=mp_slot.get(p),
                            pwin_if_started=float(max(with_p)) if with_p else None,
                            pwin_if_benched=float(max(without)) if without else None)
-            out["stacks"] = sorted(f"{nm} ({ps})" for g, t, ps, nm in my_games
-                                   if r["game"] and g == r["game"] and t == r["team"] and nm != r["name"])
-            out["vs_opponent"] = sorted(f"{nm} ({ps}, {t})" for g, t, ps, nm in opp_games
-                                        if r["game"] and g == r["game"] and nm != r["name"])
+            out["stacks"] = sorted(({"name": nm, "pos": ps, "team": t, "corr": pair_corr(r["role"], r["team"], rl, t)}
+                                    for g, t, ps, nm, rl in my_games
+                                    if r["game"] and g == r["game"] and t == r["team"] and nm != r["name"]),
+                                   key=lambda x: -abs(x["corr"]))
+            out["vs_opponent"] = sorted(({"name": nm, "pos": ps, "team": t, "corr": pair_corr(r["role"], r["team"], rl, t)}
+                                         for g, t, ps, nm, rl in opp_games
+                                         if r["game"] and g == r["game"] and nm != r["name"]),
+                                        key=lambda x: -abs(x["corr"]))
         else:
             out["starting"] = p in opp_ids
         return out

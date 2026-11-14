@@ -39,6 +39,8 @@ button.primary { background: var(--me); color: #fff; border-color: var(--me); }
 .tabs button.on { color: var(--text-primary); border-bottom-color: var(--text-primary); font-weight: 600; }
 .chips { display: flex; gap: 5px; flex-wrap: wrap; }
 .chip { background: var(--chip); color: var(--text-secondary); border-radius: 999px; padding: 2px 9px; font-size: 12px; }
+.chip.link.stack { box-shadow: inset 0 0 0 1px var(--me); } .chip.link.hedge { box-shadow: inset 0 0 0 1px var(--good); }
+.chip.link.risk { box-shadow: inset 0 0 0 1px var(--critical); }
 .chip.status::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; background: var(--dot); }
 .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 12px; }
@@ -207,6 +209,27 @@ async function route() {
 }
 
 // ------------------------------------------------------------------ shared bits
+// Links in a lineup, labelled from the estimated correlation of the two players' outcomes:
+//   Stack  = your teammate in your lineup, rises/falls together (corr >= 0.05)
+//   Hedge  = same game as an opponent's starter and moves WITH them (their big game partly offset)
+//   Double risk = moves AGAINST an opponent's starter (e.g. your D/ST vs the QB it faces)
+// Pairs with |corr| < 0.05 are not tagged.
+const CUT = 0.05;
+function linkItems(p) {
+  const st = (p.stacks || []).filter(x => x.corr >= CUT).map(x => ({k: "stack", t: `Stack: ${x.name}`,
+    full: `Same team as your ${x.name} (${x.pos}), correlation ${x.corr.toFixed(2)}: you rise and fall together (more upside, more risk).`}));
+  const vs = (p.vs_opponent || []).filter(x => Math.abs(x.corr) >= CUT).map(x => x.corr > 0
+    ? {k: "hedge", t: `Hedge: vs ${x.name}`, full: `Moves with your opponent's ${x.name} (${x.pos}, ${x.team}), correlation ${x.corr.toFixed(2)}: when they boom, you likely gain too.`}
+    : {k: "risk", t: `Double risk: vs ${x.name}`, full: `Moves against your opponent's ${x.name} (${x.pos}, ${x.team}), correlation ${x.corr.toFixed(2)}: when they boom, you likely lose ground twice.`});
+  return [...st, ...vs];
+}
+function linkChips(p, max = 2) {
+  const items = linkItems(p);
+  if (!items.length) return "";
+  const shown = items.slice(0, max).map(i => `<span class="chip link ${i.k}" title="${esc(i.full)}">${esc(i.t)}</span>`);
+  if (items.length > max) shown.push(`<span class="chip link" title="${esc(items.slice(max).map(i => i.t).join("; "))}">+${items.length - max} more</span>`);
+  return shown.join(" ");
+}
 function statusChips(p) {
   const c = [];
   if (p.locked) c.push(`<span class="chip">Locked · ${pts(p.actual)}</span>`);
@@ -251,6 +274,7 @@ function rangeLegend(replay) {
     <span><svg width="12" height="14"><path d="M 6 2 l 4.5 5 l -4.5 5 l -4.5 -5 z" fill="var(--text-primary)"/></svg> ESPN projection</span>
     ${replay ? `<span><svg width="14" height="14"><line x1="7" x2="7" y1="1" y2="13" stroke="var(--text-primary)" stroke-width="1.5" stroke-dasharray="2 2"/></svg> actual final score</span>` : ""}
     <span>Model = the model's expected points; cell <span style="padding:0 6px;border-radius:4px;${tint(1.5)}">blue</span> = above ESPN, <span style="padding:0 6px;border-radius:4px;${tint(-1.5)}">red</span> = below (stronger = bigger gap)</span>
+    <span><span class="chip link stack">Stack</span> <span class="chip link hedge">Hedge</span> <span class="chip link risk">Double risk</span> links to other players (hover for details)</span>
     <span>Click any player for details</span></div>`;
 }
 function bindRanges(rows) {
@@ -291,7 +315,7 @@ function cell(p, side, align) {
   const finPill = p.final != null ? `<span class="chip" style="font-weight:650;color:var(--text-primary)">final ${pts(p.final)}</span>` : "";
   const name = `<td class="clickable ${align}" data-player="${p.id}"><div class="pname">${esc(p.name)} ${finPill}</div>
     <div class="pmeta">${esc(p.pos || "")} · ${esc(p.team || "")}${p.opp ? " vs " + esc(p.opp) : " · bye"} · ${p.locked ? "played" : when(p.kickoff)}${fin}</div>
-    <div class="chips" style="${align === "r" ? "justify-content:flex-end;" : ""}margin-top:2px">${statusChips(p)}</div></td>`;
+    <div class="chips" style="${align === "r" ? "justify-content:flex-end;" : ""}margin-top:2px">${statusChips(p)}${side === "me" ? " " + linkChips(p) : ""}</div></td>`;
   const e = `<td class="num">${pts(p.proj)}</td>`, m = modelTd(p);
   const rg = `<td class="clickable rngcell" data-player="${p.id}">${rangeSvg(p, S.sc, side)}</td>`;
   return side === "me" ? name + e + m + rg : rg + m + e + name;
@@ -301,7 +325,7 @@ function benchTable(all, side, title) {
   const why = p => p.status === "IR" ? "IR" : p.status === "Out" ? "Out" : p.opp ? "inactive" : "bye";
   return `<div class="card scroll"><div class="secondary small">${esc(title)}</div><table>
     <tr><th>Player</th><th class="num">ESPN</th><th class="num">Model</th><th class="rngcell">${axisSvg(S.sc)}</th>${side === "me" ? '<th class="num">P(win) if started</th>' : ""}</tr>
-    ${rows.map(p => `<tr><td class="clickable" data-player="${p.id}"><div class="pname">${esc(p.name)}</div><div class="pmeta">${esc(p.pos || "")} · ${esc(p.team || "")}${p.opp ? " vs " + esc(p.opp) : " · bye"}${p.final != null ? ` · final ${pts(p.final)}` : ""}${p.started_actually ? " · they started him" : ""}</div><div class="chips">${statusChips(p)}</div></td>
+    ${rows.map(p => `<tr><td class="clickable" data-player="${p.id}"><div class="pname">${esc(p.name)}</div><div class="pmeta">${esc(p.pos || "")} · ${esc(p.team || "")}${p.opp ? " vs " + esc(p.opp) : " · bye"}${p.final != null ? ` · final ${pts(p.final)}` : ""}${p.started_actually ? " · they started him" : ""}</div><div class="chips">${statusChips(p)}${side === "me" ? " " + linkChips(p) : ""}</div></td>
       <td class="num">${pts(p.proj)}</td>${modelTd(p)}<td class="clickable rngcell" data-player="${p.id}">${rangeSvg(p, S.sc, side)}</td>
       ${side === "me" ? `<td class="num">${p.pwin_if_started != null ? pct(p.pwin_if_started, 1) : "–"}</td>` : ""}</tr>`).join("")}</table>
     ${gone.length ? `<div class="small muted" style="margin-top:6px">Unavailable: ${gone.map(p => `<span class="clickable" data-player="${p.id}">${esc(p.name)}</span> (${why(p)})`).join(", ")}</div>` : ""}</div>`;
@@ -475,8 +499,7 @@ function openDrawer(p) {
     ${p.props && p.props.length ? `<h3>Betting props (median across books)</h3><table><tr><th>Market</th><th>Side</th><th class="num">Line</th><th class="num">Implied</th></tr>
       ${p.props.map(x => `<tr><td>${esc(x.market)}</td><td>${esc(x.outcome)}</td><td class="num">${x.line != null ? pts(x.line) : "–"}</td><td class="num">${pct(x.implied)}</td></tr>`).join("")}</table>`
       : `<p class="muted small">No player props archived for this snapshot (props are pulled at the last run before each game locks).</p>`}
-    ${mine ? `<h3>Links in this lineup</h3><div class="chips">${[...(p.stacks || []).map(s => `<span class="chip">Stack · ${esc(s)}</span>`), ...(p.vs_opponent || []).map(s => `<span class="chip">Same game as opponent's ${esc(s)}</span>`)].join(" ") || '<span class="muted small">none</span>'}</div>
-      <p class="small secondary">Same-team stacks rise and fall together (more upside and more risk); being in the same game as your opponent's players partly hedges them.</p>
+    ${mine ? `<h3>Links in this lineup</h3>${linkItems(p).map(i => `<p class="small"><span class="chip link ${i.k}">${esc(i.t)}</span> ${esc(i.full)}</p>`).join("") || '<p class="muted small">No meaningful links (correlations under 0.05).</p>'}
       <h3>Win probability</h3><p>${p.recommended ? `Recommended starter. Best P(win) if benched: <b>${pct(p.pwin_if_benched, 1)}</b> (vs ${pct(r.p_win, 1)}).` : p.pwin_if_started != null ? `On the bench. Best P(win) if started: <b>${pct(p.pwin_if_started, 1)}</b> (vs ${pct(r.p_win, 1)}).` : ""}</p>` : ""}
     ${canWhatIf ? `<h3>What if</h3><div class="bar">
       <button onclick="whatif(${p.id}, 'in')">Force start</button><button onclick="whatif(${p.id}, 'out')">Force bench</button>
