@@ -896,20 +896,40 @@ function tradeCard(t, nowWeek) {
     </table><p class="small muted" style="margin:4px 0 0">Who started: incoming players in your best lineup; <s>struck</s> = outgoing players who'd have started had you kept them.</p></details>` : ""}
   </div>`;
 }
+// Every league trade, both sides: each team's best lineup with vs without its part of the trade.
+function leagueTrades(rows, me) {
+  if (!rows.length) return "";
+  const side = x => `<td><b>${esc(x.team)}</b><div class="small secondary">got ${x.got.map(esc).join(", ") || "–"}</div></td>
+    ${x.weeks ? luckTd(x.net_lineup) : `<td class="num muted">–</td>`}
+    <td class="small">${x.wins_gained || x.wins_lost ? `${x.wins_gained ? `<b>+${x.wins_gained} W</b>` : ""}${x.wins_gained && x.wins_lost ? " · " : ""}${x.wins_lost ? `<b>−${x.wins_lost} W</b>` : ""}` : `<span class="muted">${x.weeks ? "no change" : "not yet"}</span>`}</td>`;
+  const verdict = t => { const ss = t.sides.filter(x => x.weeks).sort((a, b) => b.net_lineup - a.net_lineup);
+    if (ss.length < 2) return `<span class="muted">no finished weeks yet</span>`;
+    const gap = ss[0].net_lineup - ss[ss.length - 1].net_lineup;
+    return gap < 5 ? "About even so far" : `<b>${esc(ss[0].team)}</b> ahead so far`; };
+  const width = Math.max(...rows.map(t => t.sides.length));
+  return `<h2>Every trade in the league</h2>
+    <p class="intro">Both sides of each trade, judged the same way: each team's highest-projection lineup with vs. without its part of the trade, scored on actual results, over the weeks since. “W” = results the trade flipped for that team. Players dropped to make room are only known for your own trades.</p>
+    <div class="card scroll"><table>
+      <tr><th>Week</th>${Array.from({length: width}, (_, i) => `<th>Team ${String.fromCharCode(65 + i)}</th><th class="num">Lineup pts</th><th>Results</th>`).join("")}<th>So far</th></tr>
+      ${rows.map(t => `<tr class="${t.involves_me ? "hl" : ""}"><td>${t.week}</td>${t.sides.map(side).join("")}${"<td></td><td></td><td></td>".repeat(width - t.sides.length)}<td class="small">${verdict(t)}</td></tr>`).join("")}
+    </table></div>
+    <p class="small muted">Highlighted rows involve ${esc(me)}. A trade's window ends when a team trades its incoming players on.</p>`;
+}
 function renderTrades(d) {
   const ts = d.trades, tot = d.totals;
-  setHeader(`${esc(d.team.name)} · ${ts.length} trade${ts.length === 1 ? "" : "s"} this season`);
+  setHeader(`${esc(d.team.name)} · ${ts.length} of the league's ${d.league.length} trade${d.league.length === 1 ? "" : "s"}`);
   const got = ts.reduce((s, t) => s + t.got_points, 0), gave = ts.reduce((s, t) => s + t.gave_points, 0);
   $("#main").innerHTML = `
-    <p class="intro">Every completed trade from ESPN's transaction log. <b>Lineup pts</b> compares your highest-projection lineup each week with the trade and with it undone (incoming players out, outgoing and dropped players back), both scored on what actually happened. That isolates the trade from your start/sit calls. It assumes you'd have kept the outgoing players and made every other move the same; a trade's window ends when you trade its incoming players on, and the later trade takes over. Finished weeks only (W${d.weeks[0]}–W${d.weeks[d.weeks.length - 1]}).</p>
+    <p class="intro">Every completed trade, from the league's activity feed. <b>Lineup pts</b> compares your highest-projection lineup each week with the trade and with it undone (incoming players out, outgoing and dropped players back), both scored on what actually happened. That isolates the trade from your start/sit calls. It assumes you'd have kept the outgoing players and made every other move the same; a trade's window ends when you trade its incoming players on, and the later trade takes over. Finished weeks only (W${d.weeks[0]}–W${d.weeks[d.weeks.length - 1]}).</p>
     ${ts.length ? `<div class="tiles">
       <div class="card tile"><div class="label">Trades</div><div class="value">${ts.length}</div></div>
       <div class="card tile"><div class="label">Lineup points from trades</div><div class="value">${sgn(tot.net_lineup)}</div><div class="sub">best lineup with vs without each trade</div></div>
       <div class="card tile"><div class="label">Results changed</div><div class="value">${tot.wins_gained} won · ${tot.wins_lost} lost</div><div class="sub">weeks the trade flipped the result</div></div>
       <div class="card tile"><div class="label">Raw points: got vs gave</div><div class="value">${pts(got, 0)} / ${pts(gave, 0)}</div><div class="sub">wherever the players were, same weeks</div></div>
     </div>
-    <h2>Trades, newest first</h2>
-    ${ts.slice().reverse().map(t => tradeCard(t, d.now_week)).join("")}` : `<div class="card"><p class="muted" style="margin:0">No completed trades in the archived transaction log for this team.</p></div>`}`;
+    <h2>Your trades, newest first</h2>
+    ${ts.slice().reverse().map(t => tradeCard(t, d.now_week)).join("")}` : `<div class="card"><p class="muted" style="margin:0">No completed trades for this team.</p></div>`}
+    ${leagueTrades(d.league, d.team.name)}`;
 }
 init().catch(e => $("#main").innerHTML = `<div class="loading err">${esc(e.message)}</div>`);
 </script>

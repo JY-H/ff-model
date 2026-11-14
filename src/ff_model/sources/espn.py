@@ -84,5 +84,22 @@ def fetch(kind: str, week: int):
         # Every roster transaction processed in one scoring period: trades, waiver claims, adds/drops.
         params = {"view": "mTransactions2", "scoringPeriodId": week}
         yield (kind, ESPN_LEAGUE_URL, params, *_get(ESPN_LEAGUE_URL, params))
+    elif kind == "trades":
+        # The league's activity feed, trades only (message type 244): every team's trades, which
+        # mTransactions2 only details for your own team. Paged, newest first.
+        url = ESPN_LEAGUE_URL + "/communication/"
+        offset = 0
+        while True:
+            params = {"view": "kona_league_communication"}
+            filt = {"topics": {"filterType": {"value": ["ACTIVITY_TRANSACTIONS"]}, "limit": PAGE_SIZE // 10,
+                               "limitPerMessageSet": {"value": 25}, "offset": offset,
+                               "sortMessageDate": {"sortPriority": 1, "sortAsc": False},
+                               "sortFor": {"sortPriority": 2, "sortAsc": False},
+                               "filterIncludeMessageTypeIds": {"value": [244]}}}
+            status, body = _get(url, params, filt)
+            yield (kind, url, {**params, "x-fantasy-filter": filt}, status, body)
+            if len(body.get("topics", [])) < PAGE_SIZE // 10:
+                break
+            offset += PAGE_SIZE // 10
     else:
         raise ValueError(kind)

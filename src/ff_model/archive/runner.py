@@ -122,8 +122,15 @@ def backfill_finals(con, week: int) -> int | None:
 
 
 def fetch_transactions(con, weeks, sid: int | None = None) -> list[str]:
-    """Archive ESPN's transaction log (one request per scoring period). Returns errors."""
+    """Archive ESPN's transaction log (one request per scoring period) and the league-wide
+    trade feed. Returns errors."""
     errors = []
+    try:
+        for kind, url, params, status, body in espn.fetch("trades", 0):
+            save_raw(con, sid, "espn", kind, url, params, status, body)
+    except Exception as e:
+        log.error("trade feed failed: %s", e)
+        return [f"trades: {e}"]
     for w in weeks:
         try:
             for kind, url, params, status, body in espn.fetch("transactions", w):

@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 
 import polars as pl
 
-from ..config import DB_PATH, MY_TEAM_ID
+from ..config import DB_PATH, MY_TEAM_ID, SEASON
 from ..db import load_raw
 from .backtest import _final_rosters
 from .optimize import BENCH, IR, _slot_counts
@@ -32,22 +32,41 @@ def _con():
     return con
 
 
+def _week_of(con, ms: int) -> int:
+    """Scoring period a trade at this time first counts for: the first week whose last game is after it."""
+    when = datetime.fromtimestamp(ms / 1000, timezone.utc).isoformat()
+    r = con.execute("SELECT MIN(week) FROM (SELECT week, MAX(kickoff_utc) k FROM pro_games WHERE season=? GROUP BY week)"
+                    " WHERE k >= ?", (SEASON, when)).fetchone()
+    return r[0] or 99
+
+
 def executed_trades(con=None) -> list[dict]:
-    """Every executed trade in the archived transaction log, oldest first."""
+    """Every completed trade in the league, oldest first.
+
+    From the league activity feed (all teams); players dropped to make room come from the
+    transaction log, which details only your own team's trades.
+    """
     con = con or _con()
-    seen: dict[str, dict] = {}
-    for r in con.execute("SELECT * FROM raw_responses WHERE kind='transactions' AND status_code=200 ORDER BY id"):
+    drops: dict[frozenset, list] = {}
+    for r in con.execute("SELECT * FROM raw_responses WHERE kind='transactions' AND status_code=200"):
         for t in load_raw(r).get("transactions", []):
             if t.get("type") == "TRADE_ACCEPT" and t.get("status") == "EXECUTED" and t.get("items"):
-                seen[t["id"]] = t
+                key = frozenset((i["playerId"], i["fromTeamId"], i["toTeamId"]) for i in t["items"] if i["type"] == "TRADE")
+                drops[key] = [{"type": "DROP", "player_id": i["playerId"], "from": i["fromTeamId"], "to": None}
+                              for i in t["items"] if i["type"] == "DROP"]
+    seen: dict[str, dict] = {}
+    for r in con.execute("SELECT * FROM raw_responses WHERE kind='trades' AND status_code=200 ORDER BY id"):
+        for t in load_raw(r).get("topics", []):
+            ms = [m for m in t.get("messages", []) if m.get("messageTypeId") == 244]
+            if ms and not t.get("isDeleted"):
+                seen[t["id"]] = {"date_ms": t["date"], "moves": [(m["targetId"], m["from"], m["to"]) for m in ms]}
     out = []
-    for t in sorted(seen.values(), key=lambda t: t.get("proposedDate") or 0):
-        teams = sorted({i["fromTeamId"] for i in t["items"] if i["type"] == "TRADE"}
-                       | {i["toTeamId"] for i in t["items"] if i["type"] == "TRADE"})
-        out.append({"id": t["id"], "week": t["scoringPeriodId"], "teams": teams,
-                    "date": datetime.fromtimestamp(t["proposedDate"] / 1000, timezone.utc).isoformat() if t.get("proposedDate") else None,
-                    "items": [{"type": i["type"], "player_id": i["playerId"], "from": i["fromTeamId"], "to": i["toTeamId"]}
-                              for i in t["items"]]})
+    for tid, t in sorted(seen.items(), key=lambda kv: kv[1]["date_ms"]):
+        items = [{"type": "TRADE", "player_id": p, "from": f, "to": to} for p, f, to in t["moves"]]
+        items += drops.get(frozenset(t["moves"]), [])
+        out.append({"id": tid, "week": _week_of(con, t["date_ms"]),
+                    "teams": sorted({i["from"] for i in items if i["type"] == "TRADE"} | {i["to"] for i in items if i["type"] == "TRADE"}),
+                    "date": datetime.fromtimestamp(t["date_ms"] / 1000, timezone.utc).isoformat(), "items": items})
     return out
 
 
@@ -91,7 +110,7 @@ def analyze(team_id: int | None = None) -> dict:
         loc = where.get((pid, w))
         return loc[2] if loc else pw.get((pid, w), {}).get("actual", 0.0)
 
-    def opp_score(w):
+    def opp_score(w, me):
         df = ros[w]
         opp = df.filter(pl.col("team_id") == me)["opp_team_id"][0]
         return float(df.filter((pl.col("team_id") == opp) & ~pl.col("slot").is_in([BENCH, IR]))["actual"].sum()), opp
@@ -106,10 +125,10 @@ def analyze(team_id: int | None = None) -> dict:
     now_week = con.execute("SELECT week FROM snapshots WHERE id=?", (sid,)).fetchone()[0] if sid else None
     now_proj = {r[0]: r[1] for r in con.execute("SELECT player_id, proj_points FROM player_snapshots WHERE snapshot_id=?", (sid,))}
 
-    out = []
-    for t in executed_trades(con):
-        if me not in t["teams"]:
-            continue
+    trades = executed_trades(con)
+
+    def one(t, me):
+        """How this trade has played out for team `me`."""
         partner = next(x for x in t["teams"] if x != me)
         got = [i["player_id"] for i in t["items"] if i["type"] == "TRADE" and i["to"] == me]
         gave = [i["player_id"] for i in t["items"] if i["type"] == "TRADE" and i["from"] == me]
@@ -123,7 +142,7 @@ def analyze(team_id: int | None = None) -> dict:
             elif after:
                 break
         start = after[0] if after else None
-        later = next((u for u in executed_trades(con) if u["week"] > t["week"] and
+        later = next((u for u in trades if u["week"] > t["week"] and
                       any(i["player_id"] in got and i["from"] == me for i in u["items"])), None)
 
         def side(pids, mine: bool):
@@ -152,7 +171,7 @@ def analyze(team_id: int | None = None) -> dict:
             undo = [p for p in roster if p not in got] + [p for p in gave + dropped if p not in roster]
             with_pts, with_ids = lineup_pts(roster, w)
             undo_pts, undo_ids = lineup_pts(undo, w)
-            opp_pts, opp_id = opp_score(w)
+            opp_pts, opp_id = opp_score(w, me)
             actual = float(ros[w].filter((pl.col("team_id") == me) & ~pl.col("slot").is_in([BENCH, IR]))["actual"].sum())
             weekly.append({"week": w, "opponent": names.get(opp_id), "opp_points": opp_pts, "actual": actual,
                            "with_trade": with_pts, "undone": undo_pts, "diff": with_pts - undo_pts,
@@ -161,13 +180,23 @@ def analyze(team_id: int | None = None) -> dict:
                            "gave_would_start": [pinfo.get(p, {}).get("name") for p in gave + dropped if p in undo_ids]})
         flips = [x for x in weekly if x["won_with"] != x["won_undone"]]
         g, gv = side(got, True), side(gave, False)
-        out.append({"id": t["id"], "week": t["week"], "date": t["date"], "partner": names.get(partner),
+        return {"id": t["id"], "week": t["week"], "date": t["date"], "partner": names.get(partner),
                     "got": g, "gave": gv, "dropped": side(dropped, False), "in_effect_from": start,
                     "in_effect_to": after[-1] if after else None, "ended_by_trade_week": later["week"] if later else None,
                     "weekly": weekly, "net_lineup": sum(x["diff"] for x in weekly),
                     "wins_gained": sum(x["won_with"] and not x["won_undone"] for x in flips),
                     "wins_lost": sum(x["won_undone"] and not x["won_with"] for x in flips),
-                    "got_points": sum(p["total"] for p in g), "gave_points": sum(p["total"] for p in gv)})
-    return {"team": {"id": me, "name": names.get(me)}, "weeks": weeks, "now_week": now_week, "trades": out,
+                    "got_points": sum(p["total"] for p in g), "gave_points": sum(p["total"] for p in gv)}
+
+    out = [one(t, me) for t in trades if me in t["teams"]]
+    # every trade in the league, both sides (multi-team trades: each team vs. undoing its own part)
+    league = []
+    for t in reversed(trades):
+        sides = [one(t, team) for team in t["teams"]]
+        league.append({"id": t["id"], "week": t["week"], "date": t["date"], "involves_me": me in t["teams"],
+                       "sides": [{"team": names.get(team), "got": [p["name"] for p in x["got"]], "gave": [p["name"] for p in x["gave"]],
+                                  "net_lineup": x["net_lineup"], "wins_gained": x["wins_gained"], "wins_lost": x["wins_lost"],
+                                  "weeks": len(x["weekly"])} for team, x in zip(t["teams"], sides)]})
+    return {"team": {"id": me, "name": names.get(me)}, "weeks": weeks, "now_week": now_week, "trades": out, "league": league,
             "totals": {"net_lineup": sum(t["net_lineup"] for t in out),
                        "wins_gained": sum(t["wins_gained"] for t in out), "wins_lost": sum(t["wins_lost"] for t in out)}}
