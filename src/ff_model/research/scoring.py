@@ -107,3 +107,10 @@ def score_espn_statlines(df: pl.DataFrame, rules, stats_col: str = "stats",
     is_dst = pl.col(position_col) == 16
     return df.with_columns(pl.when(is_dst).then(_score(df, rules, dst=True))
                            .otherwise(_score(df, rules, dst=False)).alias("fpts"))
+
+
+def score_wide(df: pl.DataFrame, rules, position_col: str = "position_id") -> pl.DataFrame:
+    """Frame with st_<espn stat id> columns (e.g. espn_history.parse()) -> adds fpts."""
+    is_dst = pl.col(position_col) == 16
+    return df.with_columns(pl.when(is_dst).then(_score(df, rules, dst=True))
+                           .otherwise(_score(df, rules, dst=False)).alias("fpts"))

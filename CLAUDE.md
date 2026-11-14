@@ -23,8 +23,11 @@ Historical research data from nflverse (nflreadpy / nfl_data_py):
 weekly stats, snap counts, targets
 schedules with closing spread and total
 injury reports
-No historical ESPN projections exist, so build a proxy projection (recent usage × Vegas implied team total).
-Use the proxy only to estimate the shape of projection errors and how they correlate. Recalibrate the size of the errors against the ESPN archive.
+Historical ESPN projections exist after all (found 2026-11-14). ESPN's public leaguedefaults endpoint serves weekly projections with stat lines for 2019–2025. 2018 returns nothing; earlier seasons 404.
+They replace the planned proxy projection: error shape, spread and correlation are estimated from ESPN's own errors, rescored to league scoring.
+Verified they are pre-game projections, not finals: 2020 corr(proj, actual) = 0.56; late scratches such as Tyrod Taylor 2020 W2 keep nonzero projections; finished 2026 games keep pre-game values.
+Unknown: whether they freeze at kickoff or earlier (before inactives). Check by comparing archived 2026 W10 snapshots to what the API serves afterwards.
+Gaps: no ESPN history before 2019. Injury and status fields in those responses are current, so never use them historically; use nflverse injury reports.
 Player distributions. Split each projection into a yardage/receptions part (roughly normal) and a TD part (Poisson-like), so TD-heavy players get the right skew. Validate out of sample with PIT histograms.
 Correlation model. Factors for each game's environment, each team's passing and rushing, and a negative link between an offense and the opposing DST. Join to the player distributions with a copula. Fit on early seasons, test on later ones.
 Optimizer. Enumerate legal lineups; Monte Carlo (~20k draws) of both lineups; rank by P(win).
@@ -55,6 +58,11 @@ Data: data/archive.db. raw_responses (gzipped JSON) is the source of truth; othe
 Layout: src/ff_model/{config,db,cli}.py are shared. sources/ holds the API clients (espn, odds). archive/ holds slots, runner, wakes, launchd, parse.
 Later phases go in sibling packages (e.g. research/, model/, optimize/, web/).
 
+ESPN projection history (built)
+`uv run ff-archive espn-history` writes raw gzipped JSON to data/espn_history/<season>/, plus projections.parquet with st_<espn stat id> columns.
+research/projection_errors.build(seasons) joins these to league-scored actuals; relevant() keeps the weekly fantasy-relevant pool.
+research/scoring.py applies league scoring to nflverse actuals and to ESPN stat lines. Validated against ESPN: actuals 99.6% exact, W10 projections 686/686 exact.
+
 nflverse history (built)
 `uv run ff-archive nflverse` writes data/nflverse/<dataset>/<season>.parquet for 2012 through the current season. Read it back with research.nflverse.load().
 Datasets: player_stats, team_stats, snap_counts, schedules (spread_line/total_line), injuries, ff_opportunity, and ff_playerids (one table).
@@ -64,5 +72,5 @@ Leakage: current-season files include games already played this week, and schedu
 
 Status
 Archiver live as of 2026-11-13; Week 10 is being captured. nflverse history pulled 2026-11-13.
-Next: proxy projection (recent usage × implied team total), then player distributions.
+Next: player distributions (yardage part + TD part) fit on ESPN 2019–2023 errors, tested on 2024–2025; then the correlation model.
 Open: whether to add a second projection source (e.g. FantasyPros consensus).

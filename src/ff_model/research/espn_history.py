@@ -91,9 +91,12 @@ def download(seasons=None) -> None:
                 page += 1
 
 
-def parse() -> pl.DataFrame:
+def parse(seasons=None, write: bool = True) -> pl.DataFrame:
+    """Tidy weekly projections: one row per player-week, stat lines as st_<espn stat id>."""
     rows = []
     for path in sorted(HIST_DIR.glob("*/w*-p*.json.gz")):
+        if seasons and int(path.parent.name) not in seasons:
+            continue
         season, week = int(path.parent.name), int(path.name[1:3])
         for w in json.loads(gzip.decompress(path.read_bytes())).get("players", []):
             p = w["player"]
@@ -105,8 +108,14 @@ def parse() -> pl.DataFrame:
                        "position_id": p.get("defaultPositionId"), "pro_team_id": st.get("proTeamId"),
                        "proj_ppr_default": st.get("appliedTotal")}
                 for k, v in (st.get("stats") or {}).items():
-                    row[f"s_{PLAYER_STATS_MAP.get(int(k), k)}"] = v
+                    row[f"st_{k}"] = v
                 rows.append(row)
-    df = pl.DataFrame(rows, infer_schema_length=None)
-    df.write_parquet(HIST_DIR / "projections.parquet")
+    df = pl.DataFrame(rows, infer_schema_length=None).unique(["season", "week", "espn_id"])
+    if write:
+        df.write_parquet(HIST_DIR / "projections.parquet")
     return df
+
+
+def stat_name(col: str) -> str:
+    """st_53 -> receivingReceptions, for display."""
+    return PLAYER_STATS_MAP.get(int(col.removeprefix("st_")), col)
