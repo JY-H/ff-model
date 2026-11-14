@@ -1,0 +1,13 @@
+# credentials — never commit
+.env
+.env.*
+
+# local data
+data/
+logs/
+
+# python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
