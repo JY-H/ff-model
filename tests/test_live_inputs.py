@@ -66,3 +66,18 @@ def test_factor_frame_uses_requested_seasons():
     df = factor_frame([2026], depth=1.0, with_u=False)
     assert df["team"].is_not_null().mean() > 0.95
     assert df["opp"].is_not_null().mean() > 0.95
+
+
+def test_build_inputs_keeps_every_rostered_player():
+    """Regression: matching spreads to this week's game dropped players on byes or already-played games."""
+    import sqlite3
+
+    from ff_model.config import DB_PATH
+    from ff_model.model.live import build_inputs
+    if not DB_PATH.exists():
+        pytest.skip("no archive")
+    df = build_inputs()
+    sid = int(df["snapshot_id"][0])
+    con = sqlite3.connect(DB_PATH)
+    rostered = {r[0] for r in con.execute("SELECT player_id FROM player_snapshots WHERE snapshot_id=? AND on_team_id > 0", (sid,))}
+    assert rostered <= set(df["player_id"].to_list())

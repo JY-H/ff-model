@@ -62,7 +62,8 @@ def build_inputs(snapshot_id: int | None = None) -> pl.DataFrame:
     abbr = espn_abbr(con)
 
     ps = _q(con, "SELECT player_id, full_name AS name, position_id, pro_team_id, injury_status, on_team_id,"
-                 " proj_points AS proj, proj_stats_json FROM player_snapshots WHERE snapshot_id=? AND proj_points > 0",
+                 " proj_points AS proj, proj_stats_json FROM player_snapshots WHERE snapshot_id=?"
+                 " AND (proj_points > 0 OR on_team_id > 0)",  # rostered players always (locked/late swap)
             (snapshot_id,))
     stats = [json.loads(s or "{}") for s in ps["proj_stats_json"]]
     df = ps.with_columns(
@@ -97,11 +98,14 @@ def build_inputs(snapshot_id: int | None = None) -> pl.DataFrame:
         od = (od.with_columns(pl.col("outcome").replace_strict(TEAM_NAMES, default=None).alias("team"),
                               pl.col("commence_time").str.to_datetime(time_zone="UTC").alias("ct"))
                 .group_by("team", "ct").agg((-pl.col("point").median()).alias("exp_margin")))
-        # keep the line for this week's game only (the odds feed lists future weeks too)
-        df = (df.with_columns(pl.col("kickoff_utc").str.to_datetime(time_zone="UTC").alias("_k"))
-                .join(od, on="team", how="left")
-                .filter(pl.col("ct").is_null() | ((pl.col("ct") - pl.col("_k")).abs() < pl.duration(hours=36)))
-                .unique("player_id", keep="first").drop("_k", "ct"))
+        # keep the line for this week's game only (the odds feed lists future weeks too), matched per
+        # team first, then joined without dropping anyone (byes, games already played)
+        kick = (df.select("team", "kickoff_utc").drop_nulls().unique("team")
+                  .with_columns(pl.col("kickoff_utc").str.to_datetime(time_zone="UTC").alias("_k")))
+        line = (kick.join(od, on="team", how="inner")
+                    .filter((pl.col("ct") - pl.col("_k")).abs() < pl.duration(hours=36))
+                    .group_by("team").agg(pl.col("exp_margin").first()))
+        df = df.join(line, on="team", how="left")
 
     # practice participation (nflverse), by gsis id
     ids = (load("ff_playerids").select(pl.col("espn_id").cast(pl.Int64, strict=False).alias("player_id"), "gsis_id")

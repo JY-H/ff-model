@@ -49,6 +49,9 @@ def main(argv=None) -> None:
     eh.add_argument("--weeks", type=int, nargs="*", help="only these weeks (e.g. completed weeks this season)")
     sub.add_parser("fit-marginals", help="fit player distributions on 2019-2025 and save")
     sub.add_parser("fit-correlation", help="estimate role-pair correlations on 2019-2025 and save")
+    rc = sub.add_parser("recommend", help="best lineup by P(win) for my matchup")
+    rc.add_argument("--snapshot", type=int, help="default: latest snapshot")
+    rc.add_argument("--draws", type=int, default=20000)
     np_ = sub.add_parser("nflverse", help="download nflverse history (current season refreshed)")
     np_.add_argument("--seasons", type=int, nargs="*", help="default: 2012 through this season")
     np_.add_argument("--force", action="store_true", help="re-download completed seasons too")
@@ -78,6 +81,10 @@ def main(argv=None) -> None:
         from .model.correlation import CORR_PATH, fit_live
         fit_live()
         print(f"saved {CORR_PATH}")
+        return
+    if args.cmd == "recommend":
+        from .model.optimize import format_text, recommend
+        print(format_text(recommend(args.snapshot, n=args.draws)))
         return
     if args.cmd == "nflverse":
         import polars as pl
