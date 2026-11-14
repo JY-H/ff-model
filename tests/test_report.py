@@ -23,3 +23,18 @@ def test_replay_report_handles_empty_slots_for_every_team_week():
     from ff_model.model.report import build_report
     r = build_report(week=7, team_id=17, n=500)
     assert r["outcome"] is not None and r["players"]["me"]
+
+
+def test_changes_vs_max_projection_are_reported():
+    """Regression: the swaps code shadowed the variables behind 'changes vs highest projection'."""
+    if not DB_PATH.exists():
+        pytest.skip("no archive")
+    from ff_model.model.report import build_report
+    for team in range(1, 23):
+        try:
+            r = build_report(week=10, team_id=team, n=2000)
+        except Exception:
+            continue
+        rec = {p["name"] for p in r["players"]["me"] if p.get("recommended")}
+        mp = {p["name"] for p in r["players"]["me"] if p.get("maxproj_slot")}
+        assert set(r["changes"]["start"]) == rec - mp and set(r["changes"]["bench"]) == mp - rec

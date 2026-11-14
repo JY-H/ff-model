@@ -246,7 +246,8 @@ def _reason(p_base: float, ins, outs, info, opp_start, df) -> str:
     if not ins:
         return "The highest-projection lineup is already the best bet."
     status = "favorite" if p_base > 0.55 else "underdog" if p_base < 0.45 else "toss-up"
-    parts = [f"You're a {status} ({p_base:.0%} with the highest-projection lineup)."]
+    article = "an" if status[0] in "aeiou" else "a"
+    parts = [f"You're {article} {status} ({p_base:.0%} with the highest-projection lineup)."]
     opp_games = set(opp_start["game"].drop_nulls())
     for p_in, p_out in zip(sorted(ins), sorted(outs)):
         a, b = info[p_in], info[p_out]

@@ -370,7 +370,7 @@ function renderMatchup(r) {
       <div class="card tile"><div class="label">Expected score</div><div class="value">${pts(r.my_mean, 0)} – ${pts(r.opp_mean, 0)}</div><div class="sub">80% ranges: you ${pts(r.my_range[0], 0)}–${pts(r.my_range[2], 0)} · them ${pts(r.opp_range[0], 0)}–${pts(r.opp_range[2], 0)}</div></div>
     </div>
     ${swapsCard(r)}
-    <div class="card" style="margin-top:10px"><span class="small secondary">Compared with the highest-projection lineup:</span> <b>${changed ? `start ${r.changes.start.map(esc).join(", ")}; bench ${r.changes.bench.map(esc).join(", ")}.` : "the highest-projection lineup is already the best bet."}</b>
+    <div class="card" style="margin-top:10px"><span class="small secondary">Compared with simply starting the highest projections:</span> <b>${changed ? `the model starts ${r.changes.start.map(esc).join(", ")} over ${r.changes.bench.map(esc).join(", ")}.` : "the model agrees with the highest-projection lineup."}</b>
       <span class="chip" style="margin-left:6px">${r.p_win >= 0.99 || r.p_win <= 0.01
         ? `Effectively decided: every lineup is about ${pct(r.p_win)} to win, so the pick goes to the most expected points`
         : r.close ? "Close call: runner-up within 1 pt" : "Clear: runner-up more than 1 pt behind"}</span>
@@ -381,7 +381,7 @@ function renderMatchup(r) {
     <div class="card scroll" style="margin-top:6px"><table class="h2h">
       <tr><th>${esc(r.me.name)}</th><th class="num">ESPN</th><th class="num">Model</th><th>${axisSvg(S.sc)}</th><th></th><th>${axisSvg(S.sc)}</th><th class="num">Model</th><th class="num">ESPN</th><th style="text-align:right">${esc(r.opponent.name)}</th></tr>
       ${SLOTS.map((s, i) => { const a = me.slots[i], b = op.slots[i];
-        return `<tr class="${a && a.recommended && !a.in_max_proj ? "rec" : ""}">${cell(a, "me", "")}<td class="slot">${s}</td>${cell(b, "opp", "r")}</tr>`; }).join("")}
+        return `<tr class="${a && a.recommended && ["BE", "IR"].includes(a.slot) ? "rec" : ""}">${cell(a, "me", "")}<td class="slot">${s}</td>${cell(b, "opp", "r")}</tr>`; }).join("")}
     </table></div>
     <div class="grid2">
       <div class="card"><div class="secondary small">Your margin across ${r.draws.toLocaleString()} simulated weeks</div>${marginChart(r)}
@@ -394,7 +394,7 @@ function renderMatchup(r) {
     <h2>How to read this</h2>
     <div class="card small secondary"><ul style="margin:0;padding-left:18px">
       <li>The model range is where the score should land: 80% of the time between the line's ends, half the time in the box. ESPN is ESPN's projection in your league's scoring.</li>
-      <li>P(win) simulates both lineups together, including how players move together (QB and receivers rise together; a D/ST falls when the QB it faces booms). Rows with a blue edge differ from the highest-projection lineup.</li>
+      <li>P(win) simulates both lineups together, including how players move together (QB and receivers rise together; a D/ST falls when the QB it faces booms). Rows with a blue edge are players to swap in, compared with ${r.source === "live" ? "your current lineup" : "the lineup that was started"} (the same swaps as the card at the top).</li>
       <li>Click a player for the full distribution, the stat line behind ESPN's number, what moved the median and why, props, and what-if controls.</li>
       <li>The opponent is assumed to keep their current lineup (Out starters replaced from the bench). Kickers' upside is a little too narrow; P(win) is slightly cautious at the extremes.</li></ul></div>`;
   document.querySelectorAll("rect.mbar").forEach(el => { el.onmousemove = e => showTip(e, `Margin ${sgn(+el.dataset.a, 0)} to ${sgn(+el.dataset.b, 0)}: ${pct(+el.dataset.p, 1)} of simulations`); el.onmouseleave = hideTip; });

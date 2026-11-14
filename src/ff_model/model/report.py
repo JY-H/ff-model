@@ -458,14 +458,14 @@ def build_report(week: int | None = None, team_id: int | None = None, snapshot_i
     def pos_of(p):
         return rows_by_id[p]["pos"] or (names_raw.get(p) or (None, None))[1]
     # outgoing: current starters not in the recommendation, keyed by the slot they occupy now
-    outs = [(group.get(SLOT.get(rows_by_id[p]["slot"]), "FLEX"), p) for p in cur_ids - best_ids]
+    swap_out = [(group.get(SLOT.get(rows_by_id[p]["slot"]), "FLEX"), p) for p in cur_ids - best_ids]
     # incoming: recommended players not currently starting, plus empty slots nobody can fill
-    ins = [(group.get(best_slot.get(p), "FLEX"), p) for p in best_ids - cur_ids]
-    ins += [(group.get(sl, "FLEX"), None) for sl, p in dec.lineups[dec.best] if isinstance(p, str)]
+    swap_in = [(group.get(best_slot.get(p), "FLEX"), p) for p in best_ids - cur_ids]
+    swap_in += [(group.get(sl, "FLEX"), None) for sl, p in dec.lineups[dec.best] if isinstance(p, str)]
     pairs = []
     for g in ["QB", "FLEX", "D/ST", "K"]:
-        o = sorted([p for gg, p in outs if gg == g], key=lambda p: -(rows_by_id[p]["unavailable"] or 0))
-        i = sorted([p for gg, p in ins if gg == g], key=lambda p: (p is None, -(rows_by_id[p]["proj"] or 0) if p else 0))
+        o = sorted([p for gg, p in swap_out if gg == g], key=lambda p: -(rows_by_id[p]["unavailable"] or 0))
+        i = sorted([p for gg, p in swap_in if gg == g], key=lambda p: (p is None, -(rows_by_id[p]["proj"] or 0) if p else 0))
         for k in range(max(len(o), len(i))):
             po, pi = (o[k] if k < len(o) else None), (i[k] if k < len(i) else None)
             pairs.append({"out": brief(po) if po else None, "in": brief(pi) if pi else None,
