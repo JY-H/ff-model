@@ -53,10 +53,10 @@ def _trailing(df: pl.DataFrame, key: str, cols: list[str]) -> pl.DataFrame:
         [f"_{c}" for c in cols])
 
 
-def factor_frame() -> pl.DataFrame:
+def factor_frame(seasons=SEASONS, depth: float = 1.0, with_u: bool = True) -> pl.DataFrame:
     con = connect()
     rules = scoring.league_rules(con)
-    df = relevant(build(SEASONS))
+    df = relevant(build(list(seasons)), depth=depth)
 
     # Player's NFL team that week. ESPN's historical entries don't carry it (proTeamId is 0, and
     # the player-level team is *current*), so use nflverse weekly rosters; D/ST ids encode the team.
@@ -108,15 +108,66 @@ def factor_frame() -> pl.DataFrame:
 
     # --- injury designation that week (players who were listed) ---
     inj = (load("injuries", SEASONS).filter(pl.col("game_type") == "REG")
-           .select(pl.col("season").cast(pl.Int64), pl.col("week").cast(pl.Int64), "gsis_id", "report_status")
+           .select(pl.col("season").cast(pl.Int64), pl.col("week").cast(pl.Int64), "gsis_id", "report_status",
+                   "practice_status", pl.col("report_primary_injury").alias("injury"))
            .unique(["season", "week", "gsis_id"]))
     df = (df.join(inj, on=["season", "week", "gsis_id"], how="left")
             .with_columns(pl.col("report_status").fill_null("none")))
 
+    df = _add_return_from_absence(df)
+    df = _add_mismatch(df)
+
     # --- where the actual landed in the player's predicted range ---
-    m = Marginals.load(MODEL_PATH)
-    df = df.with_columns(pl.Series("u", cdf(m.quantiles(df), df["actual"].to_numpy())))
+    if with_u:
+        m = Marginals.load(MODEL_PATH)
+        df = df.with_columns(pl.Series("u", cdf(m.quantiles(df), df["actual"].to_numpy())))
     return df
+
+
+def _add_return_from_absence(df: pl.DataFrame) -> pl.DataFrame:
+    """games_missed: consecutive games missed right before this one (roster status INA/RES, byes skipped).
+    games_back: 1 = first game back after missing 2+ games, 2 = second, ...; 0 otherwise.
+    from_ir: the absence included a week on reserve (IR/PUP)."""
+    r = (load("rosters_weekly", SEASONS).filter(pl.col("game_type") == "REG")
+         .select(pl.col("season").cast(pl.Int64), pl.col("week").cast(pl.Int64), "gsis_id", "status")
+         .drop_nulls("gsis_id").unique(["season", "week", "gsis_id"]).sort("gsis_id", "season", "week"))
+    rows = []
+    for (gid, season), g in r.group_by(["gsis_id", "season"], maintain_order=True):
+        streak, ir, back, last_absence_ir = 0, False, 0, False
+        for week, status in zip(g["week"], g["status"]):
+            out = status in ("INA", "RES")
+            if out:
+                streak, ir = streak + 1, ir or status == "RES"
+                back = 0
+                continue
+            if streak >= 2:
+                back, last_absence_ir = 1, ir
+            elif back:
+                back += 1
+            rows.append((gid, season, week, streak, back if back <= 3 else 0, last_absence_ir and back > 0))
+            streak, ir = 0, False
+    ra = pl.DataFrame(rows, schema=["gsis_id", "season", "week", "games_missed", "games_back", "from_ir"], orient="row")
+    return df.join(ra, on=["gsis_id", "season", "week"], how="left")
+
+
+def _add_mismatch(df: pl.DataFrame) -> pl.DataFrame:
+    """Opponent's implied total (market view), and the stats view people quote:
+    this team's points allowed per game + opponent's points scored per game (prior weeks)."""
+    sch = load("schedules", SEASONS).filter(pl.col("game_type") == "REG")
+    games = pl.concat([
+        sch.select("season", "week", pl.col("home_team").alias("team"), pl.col("home_score").alias("pf"),
+                   pl.col("away_score").alias("pa")),
+        sch.select("season", "week", pl.col("away_team").alias("team"), pl.col("away_score").alias("pf"),
+                   pl.col("home_score").alias("pa")),
+    ]).drop_nulls("pf").with_columns(pl.col("pf").cast(pl.Float64), pl.col("pa").cast(pl.Float64))
+    t = _trailing(games, "team", ["pf", "pa"])
+    own = t.select("season", "week", "team", pl.col("pa_pg").alias("own_pa_pg"), pl.col("n_prior").alias("own_np"))
+    opp = t.select("season", "week", pl.col("team").alias("opp"), pl.col("pf_pg").alias("opp_pf_pg"),
+                   pl.col("n_prior").alias("opp_np"))
+    return (df.join(own, on=["season", "week", "team"], how="left").join(opp, on=["season", "week", "opp"], how="left")
+              .with_columns((pl.col("total_line") - pl.col("implied_total")).alias("opp_implied_total"),
+                            pl.when((pl.col("own_np") >= MIN_PRIOR_GAMES) & (pl.col("opp_np") >= MIN_PRIOR_GAMES))
+                            .then(pl.col("own_pa_pg") + pl.col("opp_pf_pg")).alias("mismatch")))
 
 
 def _groups(df: pl.DataFrame) -> list[tuple[str, pl.Expr, list[str]]]:
@@ -157,6 +208,24 @@ def _groups(df: pl.DataFrame) -> list[tuple[str, pl.Expr, list[str]]]:
         ("injury designation", pl.when(pl.col("report_status").is_in(["Questionable", "Doubtful"]))
                                  .then(pl.lit("Q/D")).when(pl.col("report_status") == "none")
                                  .then(pl.lit("not listed")), skill),
+        # among players who played: final practice status of the week
+        ("practice (played)", pl.when(~pl.col("played")).then(pl.lit(None))
+                                .when(pl.col("practice_status").str.contains("Did Not")).then(pl.lit("DNP"))
+                                .when(pl.col("practice_status").str.contains("Limited")).then(pl.lit("limited"))
+                                .when(pl.col("practice_status").str.contains("Full")).then(pl.lit("full (listed)"))
+                                .when(pl.col("report_status") == "none").then(pl.lit("not on report")), skill),
+        ("hamstring (played, listed)", pl.when(~pl.col("played") | pl.col("practice_status").is_null()).then(pl.lit(None))
+                                         .when(pl.col("injury").str.contains("(?i)hamstring")).then(pl.lit("hamstring"))
+                                         .otherwise(pl.lit("other injury")), skill),
+        ("return after 2+ missed", pl.when(pl.col("games_back") == 1).then(pl.lit("1st game back"))
+                                     .when(pl.col("games_back") == 2).then(pl.lit("2nd game back"))
+                                     .when(pl.col("games_back") == 3).then(pl.lit("3rd game back"))
+                                     .when(pl.col("games_back") == 0).then(pl.lit("not returning")), skill),
+        ("return from IR", pl.when((pl.col("games_back") >= 1) & pl.col("from_ir")).then(pl.lit("games 1-3 after IR"))
+                             .when(pl.col("games_back") == 0).then(pl.lit("not returning")), skill),
+        ("opp implied total", terc("opp_implied_total", pl.lit(True)), skill),
+        ("D-vs-O mismatch (stats)", terc("mismatch", pl.col("mismatch").is_not_null(),
+                                          ("well matched", "avg", "badly matched")), skill),
     ]
 
 

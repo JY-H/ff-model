@@ -36,6 +36,35 @@ def features(df: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+# Pre-game context that the factor screen found ESPN under-adjusts for. Each enters
+# as proj x context, so effects scale with the player's volume, and differs by tau,
+# so it can move the floor and ceiling differently.
+def context(df: pl.DataFrame) -> pl.DataFrame:
+    def col(name, default=None):
+        return pl.col(name) if name in df.columns else pl.lit(default)
+    outdoor = col("roof").is_in(["outdoors", "open"]).fill_null(False)
+    status = col("report_status").fill_null("none")
+    practice = col("practice_status").fill_null("")
+    listed = status.is_in(["Questionable", "Doubtful"])
+    return df.with_columns(
+        (~outdoor & col("roof").is_not_null()).cast(pl.Float64).alias("c_dome"),
+        pl.when(outdoor).then(col("wind").fill_null(0) / 10).otherwise(0.0).alias("c_wind"),
+        pl.when(outdoor).then((50 - col("temp").fill_null(60)).clip(0, None) / 10).otherwise(0.0).alias("c_cold"),
+        (col("exp_margin").fill_null(0) / 7).clip(-2, 2).alias("c_margin"),
+        (listed & practice.str.contains("Did Not")).cast(pl.Float64).alias("c_q_dnp"),
+        (listed & practice.str.contains("Limited")).cast(pl.Float64).alias("c_q_limited"),
+        (listed & ~practice.str.contains("Did Not|Limited")).cast(pl.Float64).alias("c_q_other"),
+        col("games_back", 0).fill_null(0).is_between(1, 2).cast(pl.Float64).alias("c_return"),
+    )
+
+
+WEATHER = ["c_dome", "c_wind", "c_cold"]
+INJURY = ["c_q_dnp", "c_q_limited", "c_q_other", "c_return"]
+# QB injury terms dropped: ~80 listed-QB weeks in training, and they hurt out of sample.
+CONTEXT = {"QB": WEATHER + ["c_margin"], "RB": ["c_margin"] + INJURY,
+           "WR": WEATHER + ["c_margin"] + INJURY, "TE": WEATHER + ["c_margin"] + INJURY,
+           "K": WEATHER + ["c_margin"], "D/ST": ["c_margin"]}
+
 # design columns per position: proj plus proj x share interactions
 SHARES = {"QB": ["f_pass_td_share", "f_rush_share"],
           "RB": ["f_td_share", "f_rec_share"], "WR": ["f_td_share", "f_rec_share"],
@@ -47,23 +76,30 @@ SHARES = {"QB": ["f_pass_td_share", "f_rush_share"],
 CURVED = {"QB", "RB", "WR", "TE"}
 
 
-def _design(df: pl.DataFrame, pos: str) -> np.ndarray:
+def _design(df: pl.DataFrame, pos: str, use_context: bool) -> np.ndarray:
     # sqrt(proj) lets the spread bend with projection size instead of growing linearly
     proj = df["proj"].to_numpy()
     cols = [proj] + ([np.sqrt(np.clip(proj, 0, None))] if pos in CURVED else [])
     cols += [proj * df[c].to_numpy() for c in SHARES[pos]]
+    if use_context:
+        cols += [proj * df[c].to_numpy() for c in CONTEXT[pos]]
     return np.column_stack(cols)
 
 
 @dataclass
 class Marginals:
     coefs: dict[str, list[list[float]]] = field(default_factory=dict)  # pos -> per tau [intercept, *betas]
+    use_context: bool = False
+
+    def _prep(self, df: pl.DataFrame) -> pl.DataFrame:
+        df = features(df)
+        return context(df) if self.use_context else df
 
     def fit(self, train: pl.DataFrame, alpha: float = 0.0) -> "Marginals":
-        train = features(train)
+        train = self._prep(train)
         for pos in SHARES:
             d = train.filter(pl.col("pos") == pos)
-            X, y = _design(d, pos), d["actual"].to_numpy()
+            X, y = _design(d, pos, self.use_context), d["actual"].to_numpy()
             rows = []
             for tau in TAUS:
                 m = QuantileRegressor(quantile=tau, alpha=alpha, solver="highs").fit(X, y)
@@ -73,25 +109,27 @@ class Marginals:
 
     def quantiles(self, df: pl.DataFrame) -> np.ndarray:
         """(n, len(TAUS)) predicted quantiles, monotone in tau."""
-        df = features(df)
+        df = self._prep(df)
         out = np.zeros((df.height, len(TAUS)))
         pos = df["pos"].to_numpy()
         for p, rows in self.coefs.items():
             idx = np.flatnonzero(pos == p)
             if idx.size == 0:
                 continue
-            X = _design(df[idx], p)
+            X = _design(df[idx], p, self.use_context)
             B = np.array(rows)  # (tau, 1 + k)
             out[idx] = B[:, 0] + X @ B[:, 1:].T
         return np.maximum.accumulate(out, axis=1)  # no crossing
 
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"taus": TAUS.tolist(), "coefs": self.coefs}, indent=1))
+        path.write_text(json.dumps({"taus": TAUS.tolist(), "use_context": self.use_context,
+                                    "coefs": self.coefs}, indent=1))
 
     @classmethod
     def load(cls, path: Path) -> "Marginals":
-        return cls(coefs=json.loads(path.read_text())["coefs"])
+        d = json.loads(path.read_text())
+        return cls(coefs=d["coefs"], use_context=d.get("use_context", False))
 
 
 def cdf(q: np.ndarray, y: np.ndarray, rng: np.random.Generator | None = None) -> np.ndarray:
@@ -126,8 +164,14 @@ def pinball(q: np.ndarray, y: np.ndarray) -> float:
 
 
 def fit_live(seasons=range(2019, 2026), depth: float = 2.0) -> Marginals:
-    """Fit on every available season and save to MODEL_PATH for live use."""
-    from ..research.projection_errors import build, relevant
-    m = Marginals().fit(relevant(build(list(seasons)), depth=depth))
+    """Fit on every available season (active players, with context) and save to MODEL_PATH.
+
+    Live inputs needed per player: weather at the stadium (roof, wind, temp), the
+    team's expected margin from the archived odds, injury report status and final
+    practice status, and games_back after an absence.
+    """
+    from ..research.factor_tests import factor_frame
+    train = factor_frame(seasons, depth=depth, with_u=False).filter(pl.col("played"))
+    m = Marginals(use_context=True).fit(train)
     m.save(MODEL_PATH)
     return m
