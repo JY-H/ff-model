@@ -19,3 +19,20 @@ def test_pit_is_uniform_when_model_is_right():
     u = cdf(q, rng.standard_normal(20000), rng)
     hist = np.histogram(u, bins=10, range=(0, 1))[0] / 20000
     assert np.all(np.abs(hist - 0.1) < 0.012)
+
+
+def test_live_quantiles_rise_with_projection():
+    import polars as pl
+    import pytest
+    from ff_model.model.marginals import MODEL_PATH, Marginals
+    if not MODEL_PATH.exists():
+        pytest.skip("no fitted model")
+    m = Marginals.load(MODEL_PATH)
+    for pos, lo, hi in [("K", 4, 13), ("D/ST", 1, 14), ("QB", 8, 32), ("RB", 3, 28), ("WR", 3, 28), ("TE", 2, 22)]:
+        ps = np.linspace(lo, hi, 12)
+        n = len(ps)
+        ex = pl.DataFrame({"pos": [pos] * n, "proj": ps, "p_rec_td": ps * 0.03, "p_rush_td": ps * 0.0,
+                           "p_rec": ps * (0.35 if pos in ("RB", "WR", "TE") else 0.0),
+                           "p_pass_td": ps * (0.08 if pos == "QB" else 0.0), "p_rush_yds": ps * 0.0})
+        q = m.quantiles(ex)
+        assert np.all(np.diff(q, axis=0) >= -0.05), pos

@@ -16,6 +16,10 @@ import numpy as np
 import polars as pl
 from sklearn.linear_model import QuantileRegressor
 
+from ..config import DATA_DIR
+
+MODEL_PATH = DATA_DIR / "models" / "marginals.json"
+
 TAUS = np.array([0.01, 0.025, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5,
                  0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 0.975, 0.99])
 
@@ -38,10 +42,16 @@ SHARES = {"QB": ["f_pass_td_share", "f_rush_share"],
           "TE": ["f_td_share", "f_rec_share"], "K": [], "D/ST": []}
 
 
+# K and D/ST projections are compressed and weakly predictive; a curved term
+# overfits and made kicker ceilings fall as projections rose. Keep them linear.
+CURVED = {"QB", "RB", "WR", "TE"}
+
+
 def _design(df: pl.DataFrame, pos: str) -> np.ndarray:
     # sqrt(proj) lets the spread bend with projection size instead of growing linearly
     proj = df["proj"].to_numpy()
-    cols = [proj, np.sqrt(np.clip(proj, 0, None))] + [proj * df[c].to_numpy() for c in SHARES[pos]]
+    cols = [proj] + ([np.sqrt(np.clip(proj, 0, None))] if pos in CURVED else [])
+    cols += [proj * df[c].to_numpy() for c in SHARES[pos]]
     return np.column_stack(cols)
 
 
@@ -113,3 +123,11 @@ def pinball(q: np.ndarray, y: np.ndarray) -> float:
     """Mean pinball loss across TAUS (~ CRPS / 2). Lower is better."""
     d = y[:, None] - q
     return float(np.mean(np.maximum(TAUS * d, (TAUS - 1) * d)))
+
+
+def fit_live(seasons=range(2019, 2026), depth: float = 2.0) -> Marginals:
+    """Fit on every available season and save to MODEL_PATH for live use."""
+    from ..research.projection_errors import build, relevant
+    m = Marginals().fit(relevant(build(list(seasons)), depth=depth))
+    m.save(MODEL_PATH)
+    return m

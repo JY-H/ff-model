@@ -46,6 +46,7 @@ def main(argv=None) -> None:
     bf.add_argument("weeks", type=int, nargs="+")
     eh = sub.add_parser("espn-history", help="backfill ESPN weekly projections 2019-2025")
     eh.add_argument("--seasons", type=int, nargs="*")
+    sub.add_parser("fit-marginals", help="fit player distributions on 2019-2025 and save")
     np_ = sub.add_parser("nflverse", help="download nflverse history (current season refreshed)")
     np_.add_argument("--seasons", type=int, nargs="*", help="default: 2012 through this season")
     np_.add_argument("--force", action="store_true", help="re-download completed seasons too")
@@ -65,6 +66,11 @@ def main(argv=None) -> None:
         espn_history.download(args.seasons)
         df = espn_history.parse()
         print(df.group_by("season").agg(weeks=pl.col("week").n_unique(), rows=pl.len()).sort("season"))
+        return
+    if args.cmd == "fit-marginals":
+        from .model.marginals import MODEL_PATH, fit_live
+        fit_live()
+        print(f"saved {MODEL_PATH}")
         return
     if args.cmd == "nflverse":
         import polars as pl
