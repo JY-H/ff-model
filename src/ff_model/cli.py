@@ -48,6 +48,7 @@ def main(argv=None) -> None:
     eh.add_argument("--seasons", type=int, nargs="*")
     eh.add_argument("--weeks", type=int, nargs="*", help="only these weeks (e.g. completed weeks this season)")
     sub.add_parser("fit-marginals", help="fit player distributions on 2019-2025 and save")
+    sub.add_parser("fit-correlation", help="estimate role-pair correlations on 2019-2025 and save")
     np_ = sub.add_parser("nflverse", help="download nflverse history (current season refreshed)")
     np_.add_argument("--seasons", type=int, nargs="*", help="default: 2012 through this season")
     np_.add_argument("--force", action="store_true", help="re-download completed seasons too")
@@ -72,6 +73,11 @@ def main(argv=None) -> None:
         from .model.marginals import MODEL_PATH, fit_live
         fit_live()
         print(f"saved {MODEL_PATH}")
+        return
+    if args.cmd == "fit-correlation":
+        from .model.correlation import CORR_PATH, fit_live
+        fit_live()
+        print(f"saved {CORR_PATH}")
         return
     if args.cmd == "nflverse":
         import polars as pl
