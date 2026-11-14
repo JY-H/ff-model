@@ -53,7 +53,8 @@ td { padding: 6px; border-bottom: 1px solid var(--grid); vertical-align: middle;
 .clickable { cursor: pointer; } .clickable:hover { background: var(--grid); }
 .h2h td.slot { text-align: center; font-weight: 600; color: var(--text-secondary); font-size: 12px; background: var(--surface-0); width: 52px; }
 .h2h td.r { text-align: right; } .h2h .rec { box-shadow: inset 3px 0 0 var(--me); }
-.three td.diffcell { background: var(--hl); } .three tr.totals td { border-top: 2px solid var(--border); vertical-align: top; }
+.three tr.diffrow td { background: var(--hl); } .ctr { text-align: center; }
+.delta { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; color: var(--text-secondary); margin-left: 4px; white-space: nowrap; }
 .legend { display: flex; gap: 14px; font-size: 12px; color: var(--text-secondary); align-items: center; flex-wrap: wrap; }
 .tip { position: fixed; pointer-events: none; background: var(--surface-1); color: var(--text-primary); border: 1px solid var(--border);
   border-radius: 8px; padding: 8px 10px; font-size: 12px; box-shadow: 0 4px 14px rgba(0,0,0,.15); display: none; z-index: 30; max-width: 320px; }
@@ -110,6 +111,16 @@ const showTip = (e, h) => { tip.innerHTML = h; tip.style.display = "block";
   tip.style.top = Math.min(e.clientY + 14, innerHeight - tip.offsetHeight - 8) + "px"; };
 const hideTip = () => tip.style.display = "none";
 const SLOTS = ["QB", "RB", "RB", "WR", "WR", "TE", "FLEX", "D/ST", "K"];
+// Diverging bar for "model vs ESPN": blue when the model is higher, red when lower; the signed
+// number is always printed (text in text color), so the bar is never the only cue.
+function delta(d, scale = 2.5) {
+  if (d == null || isNaN(d)) return "";
+  if (Math.abs(d) < 0.1) return `<span class="delta muted">±0</span>`;
+  const W = 60, mid = W / 2, w = Math.max(4, Math.min(1, Math.abs(d) / scale) * (mid - 1));
+  return `<span class="delta"><svg width="${W}" height="12" aria-hidden="true"><line x1="${mid}" x2="${mid}" y1="0" y2="12" stroke="var(--text-muted)"/>
+    <rect x="${d > 0 ? mid + 1 : mid - 1 - w}" y="2" width="${w}" height="8" rx="2" fill="${d > 0 ? "var(--win)" : "var(--loss)"}"/></svg>${sgn(d)}</span>`;
+}
+const modelCell = p => p.locked || p.unavailable ? "–" : `${pts(p.model_mean)} ${delta(p.model_mean - p.proj)}`;
 
 const S = {weeks: [], teams: [], me: null, week: null, team: null, snapshot: null, tab: "matchup", report: null,
            overrides: {force_in: [], force_out: [], proj_delta: {}}};
@@ -164,7 +175,9 @@ async function route() {
       if (S.openPlayer) { const p = [...S.report.players.me, ...S.report.players.opp].find(x => x.id === S.openPlayer); S.openPlayer = null; openDrawer(p); }
     } else if (S.tab === "context") {
       main.innerHTML = `<div class="loading">Loading the week's context…</div>`;
-      renderContext(await getJSON("/api/context?" + qs()));
+      const [c, rep] = await Promise.all([getJSON("/api/context?" + qs()), getJSON("/api/report?" + qs())]);
+      S.report = rep;
+      renderContext(c, rep);
     } else {
       main.innerHTML = `<div class="loading">Loading…</div>`;
       renderSeason(await getJSON("/api/tracking?" + qs()));
@@ -215,6 +228,7 @@ function rangeLegend(replay) {
     line 10th–90th percentile (80% chance) · box 25th–75th · tick median</span>
     <span><svg width="12" height="14"><path d="M 6 2 l 4.5 5 l -4.5 5 l -4.5 -5 z" fill="var(--text-primary)"/></svg> ESPN projection</span>
     ${replay ? `<span><svg width="14" height="14"><line x1="7" x2="7" y1="1" y2="13" stroke="var(--text-primary)" stroke-width="1.5" stroke-dasharray="2 2"/></svg> actual final score</span>` : ""}
+    <span>Model = the model's expected points; ${delta(1.5)} / ${delta(-1.5)} model above / below ESPN</span>
     <span>Click any player for details</span></div>`;
 }
 function bindRanges(rows) {
@@ -256,78 +270,48 @@ function cell(p, side, align) {
   const name = `<td class="clickable ${align}" data-player="${p.id}"><div class="pname">${esc(p.name)} ${finPill}</div>
     <div class="pmeta">${esc(p.pos || "")} · ${esc(p.team || "")}${p.opp ? " vs " + esc(p.opp) : " · bye"} · ${p.locked ? "played" : when(p.kickoff)}${fin}</div>
     <div class="chips" style="${align === "r" ? "justify-content:flex-end;" : ""}margin-top:2px">${statusChips(p)}</div></td>`;
-  const e = `<td class="num">${pts(p.proj)}</td>`, m = `<td class="num">${p.locked || p.unavailable ? "–" : pts(p.quantiles.p50)}</td>`;
+  const e = `<td class="num">${pts(p.proj)}</td>`, m = `<td class="num">${modelCell(p)}</td>`;
   const rg = `<td class="clickable" data-player="${p.id}">${rangeSvg(p, S.sc, side)}</td>`;
   return side === "me" ? name + e + m + rg : rg + m + e + name;
 }
 function benchTable(rows, side, title) {
   return `<div class="card scroll"><div class="secondary small">${esc(title)}</div><table>
-    <tr><th>Player</th><th class="num">ESPN</th><th class="num">Median</th><th>${axisSvg(S.sc)}</th>${side === "me" ? '<th class="num">P(win) if started</th>' : ""}</tr>
+    <tr><th>Player</th><th class="num">ESPN</th><th class="num">Model</th><th>${axisSvg(S.sc)}</th>${side === "me" ? '<th class="num">P(win) if started</th>' : ""}</tr>
     ${rows.map(p => `<tr><td class="clickable" data-player="${p.id}"><div class="pname">${esc(p.name)}</div><div class="pmeta">${esc(p.pos || "")} · ${esc(p.team || "")}${p.opp ? " vs " + esc(p.opp) : " · bye"}${p.final != null ? ` · final ${pts(p.final)}` : ""}${p.started_actually ? " · they started him" : ""}</div><div class="chips">${statusChips(p)}</div></td>
-      <td class="num">${pts(p.proj)}</td><td class="num">${p.unavailable ? "–" : pts(p.quantiles.p50)}</td><td class="clickable" data-player="${p.id}">${rangeSvg(p, S.sc, side)}</td>
+      <td class="num">${pts(p.proj)}</td><td class="num">${modelCell(p)}</td><td class="clickable" data-player="${p.id}">${rangeSvg(p, S.sc, side)}</td>
       ${side === "me" ? `<td class="num">${p.pwin_if_started != null ? pct(p.pwin_if_started, 1) : "–"}</td>` : ""}</tr>`).join("")}</table></div>`;
 }
 function replayTable(r) {
-  // three lineups, slot by slot: highest projection, the model's, and what was actually started
   const me = r.players.me;
-  const locked = me.filter(p => p.locked && !["BE", "IR"].includes(p.slot));
-  const lineups = {
-    max: [...locked.map(p => [p.slot, p]), ...me.filter(p => p.maxproj_slot).map(p => [p.maxproj_slot, p])],
-    model: [...locked.map(p => [p.slot, p]), ...me.filter(p => p.recommended).map(p => [p.rec_slot, p])],
-    started: me.filter(p => !["BE", "IR"].includes(p.slot)).map(p => [p.slot, p]),
-  };
-  const bySlot = k => { const o = {}; for (const [s, p] of lineups[k]) (o[s] ||= []).push(p); return o; };
-  const L = {max: bySlot("max"), model: bySlot("model"), started: bySlot("started")};
-  // RB/WR and FLEX are interchangeable: treat RB, WR, TE and FLEX as one pool when lining rows up
-  const rows = [];
-  for (const group of [["QB"], ["RB", "WR", "TE", "FLEX"], ["D/ST"], ["K"]]) {
-    const take = k => group.flatMap(s => (L[k][s] || []).map(p => ({s, p})));
-    const a = take("max"), b = take("model"), c = take("started");
-    const ids = [...new Set([...a, ...b, ...c].map(x => x.p.id))];
-    // rows: players in all three first, then the rest, keeping each lineup's slot label
-    const inAll = ids.filter(id => [a, b, c].every(l => l.some(x => x.p.id === id)));
-    const used = {a: new Set(), b: new Set(), c: new Set()};
-    const pick = (l, u, id) => { const x = l.find(y => y.p.id === id && !u.has(y.p.id)); if (x) u.add(x.p.id); return x || null; };
-    for (const id of inAll) rows.push({slot: (a.find(x => x.p.id === id) || {}).s, a: pick(a, used.a, id), b: pick(b, used.b, id), c: pick(c, used.c, id)});
-    const rest = l => l.filter(x => !inAll.includes(x.p.id));
-    const ra = rest(a), rb = rest(b), rc = rest(c), n = Math.max(ra.length, rb.length, rc.length);
-    // pair the remaining players, preferring the same player across lineups
-    for (let i = 0; i < n; i++) {
-      const x = ra[i] || null, y = rb.find(z => x && z.p.id === x.p.id) || rb.find(z => !used.b.has(z.p.id)) || null;
-      if (y) used.b.add(y.p.id);
-      const z = rc.find(w => (x && w.p.id === x.p.id) || (y && w.p.id === y.p.id)) || rc.find(w => !used.c.has(w.p.id)) || null;
-      if (z) used.c.add(z.p.id);
-      rows.push({slot: (x || y || z).s, a: x, b: y, c: z});
-    }
-  }
-  const order = {QB: 0, RB: 1, WR: 2, TE: 3, FLEX: 4, "D/ST": 5, K: 6};
-  rows.sort((u, v) => order[u.slot] - order[v.slot]);
-  const fin = p => p ? (p.final ?? p.actual ?? 0) : 0;
-  const why = p => !p || !p.unavailable ? "" : `<span class="chip status" style="--dot:var(--critical)">${
-    p.status === "IR" ? "on IR" : p.status === "Out" ? "ruled Out" : p.status === "Suspended" ? "suspended" : p.opp ? "inactive" : "bye week"}: couldn't score</span>`;
-  const cellOf = (x, showModel, diff) => {
-    if (!x) return `<td class="muted small">(empty)</td><td></td>`;
-    const p = x.p;
-    return `<td class="clickable ${diff ? "diffcell" : ""}" data-player="${p.id}"><div class="pname">${esc(p.name)}</div>
-      <div class="pmeta">${esc(p.pos || "")} · ${esc(p.team || "")}${p.locked ? " · locked" : ""} · ESPN ${pts(p.proj)}${showModel && !p.locked && !p.unavailable ? ` · model ${pts(p.model_mean)}` : ""}</div>${why(p)}</td>
-      <td class="num ${diff ? "diffcell" : ""}"><b>${pts(fin(p))}</b></td>`;
-  };
+  const inMax = p => p.maxproj_slot || (p.locked && !["BE", "IR"].includes(p.slot));
+  const inModel = p => p.recommended || (p.locked && !["BE", "IR"].includes(p.slot));
+  const inStarted = p => !["BE", "IR"].includes(p.slot);
+  const rows = me.filter(p => inMax(p) || inModel(p) || inStarted(p));
+  const order = {QB: 0, RB: 1, WR: 2, TE: 3, "D/ST": 4, K: 5};
+  rows.sort((a, b) => (order[a.pos] ?? 9) - (order[b.pos] ?? 9) || (b.proj || 0) - (a.proj || 0));
+  const fin = p => p.final ?? p.actual ?? 0;
+  const why = p => !p.unavailable ? "" : ` <span class="chip status" style="--dot:var(--critical)">${
+    p.status === "IR" ? "on IR" : p.status === "Out" ? "ruled Out" : p.status === "Suspended" ? "suspended" : p.opp ? "inactive" : "bye week"}</span>`;
+  const mark = on => on ? `<span aria-label="in lineup">✓</span>` : `<span class="muted">–</span>`;
   const T = r.lineup_totals, o = r.outcome;
   const res = v => v > o.opponent ? "win" : v < o.opponent ? "loss" : "tie";
-  const tot = (k, finalv) => `<td class="small"><div>ESPN projected <b>${pts(T[k].espn)}</b></div><div>model expected <b>${pts(T[k].model)}</b></div></td>
-    <td class="num"><b>${pts(finalv)}</b><div class="small">${res(finalv)}</div></td>`;
-  const same = (x, y) => (x && x.p.id) === (y && y.p.id);
   return `<h2>Highest projection vs. model vs. what was actually started</h2>
     <div class="card scroll"><table class="three">
-      <tr><th>Slot</th><th>Highest-projection lineup</th><th class="num">Final</th><th>Model's lineup</th><th class="num">Final</th><th>Actually started</th><th class="num">Final</th></tr>
-      ${rows.map(x => `<tr><td class="small">${x.slot}</td>${cellOf(x.a, false, false)}${cellOf(x.b, true, !same(x.a, x.b))}${cellOf(x.c, false, !same(x.a, x.c))}</tr>`).join("")}
-      <tr class="totals"><td class="small"><b>Total</b></td>${tot("max_proj", o.max_proj)}${tot("model", o.model)}${tot("started", o.actual)}</tr>
+      <tr><th>Player</th><th class="num">ESPN</th><th class="num">Model</th><th class="num">Final</th>
+        <th class="ctr">Highest projection</th><th class="ctr">Model</th><th class="ctr">Started</th></tr>
+      ${rows.map(p => { const a = !!inMax(p), b = !!inModel(p), c = !!inStarted(p), same = a === b && b === c;
+        return `<tr class="${same ? "" : "diffrow"} clickable" data-player="${p.id}">
+          <td><span class="pname">${esc(p.name)}</span> <span class="pmeta">${esc(p.pos || "")} · ${esc(p.team || "")}${p.locked ? " · played Thu/intl" : ""}</span>${why(p)}</td>
+          <td class="num">${pts(p.proj)}</td><td class="num">${modelCell(p)}</td><td class="num"><b>${pts(fin(p))}</b></td>
+          <td class="ctr">${mark(a)}</td><td class="ctr">${mark(b)}</td><td class="ctr">${mark(c)}</td></tr>`; }).join("")}
     </table>
-    <div class="chips" style="margin-top:8px">
-      <span class="chip">${esc(r.opponent.name)}: ESPN projected ${pts(T.opponent.espn)}, scored ${pts(o.opponent)}</span>
-      <span class="chip">Model P(win) ${pct(r.p_win)} · highest projection ${pct(r.p_win_max_proj)}</span></div>
-    <p class="small muted" style="margin:6px 0 0">Highlighted cells differ from the highest-projection lineup. "ESPN" is ESPN's projection; "model" is the model's expected points; "Final" is what actually happened.
-      Locked players (games before Sunday 11:45 ET) count at their final score in every lineup. The model decided without knowing any results.</p></div>`;
+    <table style="margin-top:10px"><tr><th>Lineup</th><th class="num">ESPN projected</th><th class="num">Model expected</th><th class="num">Final</th><th>Result</th></tr>
+      ${[["Highest projection", "max_proj", o.max_proj], ["Model", "model", o.model], ["Started", "started", o.actual]].map(([lab, k, v]) =>
+        `<tr><td>${lab}</td><td class="num">${pts(T[k].espn)}</td><td class="num">${pts(T[k].model)}</td><td class="num"><b>${pts(v)}</b></td><td>${res(v)}</td></tr>`).join("")}
+      <tr class="muted"><td>${esc(r.opponent.name)}</td><td class="num">${pts(T.opponent.espn)}</td><td></td><td class="num">${pts(o.opponent)}</td><td></td></tr>
+    </table>
+    <p class="small muted" style="margin:6px 0 0">Highlighted rows: the lineups disagree about that player. ESPN = ESPN's projection; Model = the model's expected points, with a blue (higher) or red (lower) bar for its difference from ESPN; Final = actual.
+      RB/WR/TE in the FLEX count the same as in their own slot. The model decided without knowing any results.</p></div>`;
 }
 function renderMatchup(r) {
   const replay = r.source === "replay";
@@ -366,7 +350,7 @@ function renderMatchup(r) {
     <h2>Head to head${replay ? " (model's lineup vs. their actual lineup)" : ""}</h2>
     ${rangeLegend(replay)}
     <div class="card scroll" style="margin-top:6px"><table class="h2h">
-      <tr><th>${esc(r.me.name)}</th><th class="num">ESPN</th><th class="num">Median</th><th>${axisSvg(S.sc)}</th><th></th><th>${axisSvg(S.sc)}</th><th class="num">Median</th><th class="num">ESPN</th><th style="text-align:right">${esc(r.opponent.name)}</th></tr>
+      <tr><th>${esc(r.me.name)}</th><th class="num">ESPN</th><th class="num">Model</th><th>${axisSvg(S.sc)}</th><th></th><th>${axisSvg(S.sc)}</th><th class="num">Model</th><th class="num">ESPN</th><th style="text-align:right">${esc(r.opponent.name)}</th></tr>
       ${SLOTS.map((s, i) => { const a = me.slots[i], b = op.slots[i];
         return `<tr class="${a && a.recommended && !a.in_max_proj ? "rec" : ""}">${cell(a, "me", "")}<td class="slot">${s}</td>${cell(b, "opp", "r")}</tr>`; }).join("")}
     </table></div>
@@ -464,27 +448,61 @@ function whatif(id, kind) {
 }
 
 // ------------------------------------------------------------------ week context tab
-function renderContext(c) {
+function weatherText(g) {
+  if (g.roof && g.roof !== "outdoors" && g.roof !== "open") return g.roof === "dome" ? "Dome" : "Roof closed";
+  if (g.wind == null) return "–";
+  return `${Math.round(g.wind)} mph${g.gust ? ` (gusts ${Math.round(g.gust)})` : ""}, ${Math.round(g.temp)}°F${g.precip_prob != null ? `, ${Math.round(g.precip_prob)}% rain` : ""}`;
+}
+function renderContext(c, r) {
   $("#title").textContent = `Start/Sit · Week ${c.week} context`;
+  const mine = r.players.me.filter(p => !p.unavailable), theirs = r.players.opp.filter(p => !p.unavailable);
+  const starters = new Set([...mine.filter(p => p.recommended || (p.locked && !["BE", "IR"].includes(p.slot))), ...theirs.filter(p => p.starting)].map(p => p.id));
+  const teams = new Set([...mine, ...theirs].map(p => p.team));
+  const myGames = c.games.filter(g => teams.has(g.home) || teams.has(g.away));
+  const names = (team, list) => list.filter(p => p.team === team).map(p => `${esc(p.name)}${starters.has(p.id) ? "" : " (bench)"}`);
+  const sideCell = (g, list) => [...names(g.away, list), ...names(g.home, list)].join(", ") || '<span class="muted">–</span>';
+  const ctxRow = (p, side) => {
+    const lines = (p.explain || []).find(e => e.factor === "lines");
+    const inj = [p.status && p.status !== "none" ? p.status : "", p.practice && p.status && p.status !== "none" ? p.practice.replace(" Participation in Practice", " practice").replace(" In Practice", "") : "",
+                 p.injury || "", p.games_back === 1 || p.games_back === 2 ? (p.games_back === 1 ? "1st" : "2nd") + " game back" : ""].filter(Boolean).join(" · ");
+    const total = Object.values(p.effects || {}).reduce((a, b) => a + b, 0);
+    return `<tr class="clickable" data-player="${p.id}"><td><span class="pname">${esc(p.name)}</span> <span class="pmeta">${esc(p.pos)} · ${esc(p.team)} vs ${esc(p.opp)}${starters.has(p.id) ? "" : " · bench"}</span></td>
+      <td class="small">${side}</td><td class="small" style="white-space:nowrap">${when(p.kickoff)}</td><td class="small">${esc(weatherText(p))}</td>
+      <td class="small">${p.spread != null ? (p.spread >= 0 ? `fav ${pts(p.spread)}` : `dog ${pts(-p.spread)}`) : "–"}${p.total ? ` · O/U ${pts(p.total)}` : ""}</td>
+      <td class="small">${esc(inj) || '<span class="muted">–</span>'}</td>
+      <td class="small">${lines ? esc(lines.details.filter(d => !d.startsWith("Starters =")).join(" ")) : '<span class="muted">–</span>'}</td>
+      <td class="num">${delta(total)}</td></tr>`;
+  };
+  const all = [...mine.map(p => [p, "You"]), ...theirs.map(p => [p, "Opp"])]
+    .sort((a, b) => (starters.has(b[0].id) - starters.has(a[0].id)) || (a[0].kickoff || "").localeCompare(b[0].kickoff || ""));
   $("#main").innerHTML = `
-    <p class="secondary small" style="margin-top:10px">${c.source === "live" ? `Exactly what the archive held at snapshot #${c.snapshot_id}.` : "Replay week: weather measured at game time, closing lines, final injury reports (nflverse)."}</p>
-    <h2>Games</h2><div class="card scroll"><table>
-      <tr><th>Kickoff</th><th>Game</th><th>Stadium</th><th>Roof</th><th>Weather</th><th class="num">Home line</th><th class="num">O/U</th>${c.source === "replay" ? "<th>Final</th>" : ""}</tr>
-      ${c.games.map(g => `<tr><td class="small">${when(g.kickoff)}</td><td>${esc(g.away)} @ ${esc(g.home)}</td><td class="small">${esc(g.stadium)}</td><td class="small">${esc(g.roof || "–")}</td>
-        <td class="small">${g.wind != null ? `${Math.round(g.wind)} mph${g.gust ? ` (gusts ${Math.round(g.gust)})` : ""}, ${Math.round(g.temp)}°F${g.precip_prob != null ? `, ${Math.round(g.precip_prob)}% rain` : ""} <span class="muted">· ${esc(g.weather_kind)}</span>` : "–"}</td>
-        <td class="num">${g.home_spread != null ? sgn(g.home_spread) : "–"}</td><td class="num">${pts(g.total)}</td>${c.source === "replay" ? `<td>${esc(g.score || "")}</td>` : ""}</tr>`).join("")}</table></div>
-    <h2>Offensive line and secondary starters out</h2>
-    <p class="small secondary">Starters = 60%+ of snaps in earlier games; out = listed Out/Doubtful or on IR before kickoff.</p>
-    <div class="card scroll"><table><tr><th>Team</th><th>Unit</th><th>Who</th></tr>
-      ${c.lines.map(l => `<tr><td>${esc(l.team)}</td><td>${esc(l.unit)}</td><td class="small">${esc(l.who)}</td></tr>`).join("") || `<tr><td colspan="3" class="muted">None</td></tr>`}</table></div>
-    <h2>Injury report</h2>
-    <div class="bar" style="margin-bottom:6px"><input id="injq" placeholder="Filter by team or player" style="width:240px"><span class="small muted">${c.injuries.length} entries</span></div>
-    <div class="card scroll"><table id="injt"><tr><th>Team</th><th>Player</th><th>Pos</th><th>Game status</th><th>Practice</th><th>Injury</th></tr>
+    <p class="secondary small" style="margin-top:10px">${c.source === "live" ? `What the archive held at snapshot #${c.snapshot_id}.` : "Replay week: weather measured at game time, closing lines, final injury reports."}
+      Showing ${esc(r.me.name)} vs ${esc(r.opponent.name)}; change the team above to see another matchup.</p>
+    <h2>Your matchup</h2>
+    <div class="card scroll"><table>
+      <tr><th>Player</th><th>Team</th><th>Kickoff</th><th>Weather</th><th>Line</th><th>Injury report</th><th>OL / secondary out</th><th class="num">Context effect</th></tr>
+      ${all.map(([p, side]) => ctxRow(p, side)).join("")}</table>
+      <p class="small muted" style="margin:6px 0 0">Starters first, then bench. Click a player for the full explanation. OL/DB notes appear where the model uses them (own OL for QB/RB, opponent OL for D/ST, opponent secondary for QB).</p></div>
+    <h2>Games with players from this matchup</h2>
+    <div class="card scroll"><table><tr><th>Kickoff</th><th>Game</th><th>Roof / weather</th><th class="num">Home line</th><th class="num">O/U</th><th>${esc(r.me.name)}</th><th>${esc(r.opponent.name)}</th>${c.source === "replay" ? "<th>Final</th>" : ""}</tr>
+      ${myGames.map(g => `<tr><td class="small">${when(g.kickoff)}</td><td>${esc(g.away)} @ ${esc(g.home)}</td><td class="small">${esc(weatherText(g))}</td>
+        <td class="num">${g.home_spread != null ? sgn(g.home_spread) : "–"}</td><td class="num">${pts(g.total)}</td>
+        <td class="small">${sideCell(g, mine)}</td><td class="small">${sideCell(g, theirs)}</td>${c.source === "replay" ? `<td>${esc(g.score || "")}</td>` : ""}</tr>`).join("")}</table></div>
+    <h2>All data for the week</h2>
+    <details class="card"><summary>All ${c.games.length} games (stadium, roof, weather, line, total)</summary><div class="scroll"><table>
+      <tr><th>Kickoff</th><th>Game</th><th>Stadium</th><th>Weather</th><th class="num">Home line</th><th class="num">O/U</th>${c.source === "replay" ? "<th>Final</th>" : ""}</tr>
+      ${c.games.map(g => `<tr><td class="small">${when(g.kickoff)}</td><td>${esc(g.away)} @ ${esc(g.home)}</td><td class="small">${esc(g.stadium)}</td>
+        <td class="small">${esc(weatherText(g))}${g.wind != null ? ` <span class="muted">· ${esc(g.weather_kind)}</span>` : ""}</td>
+        <td class="num">${g.home_spread != null ? sgn(g.home_spread) : "–"}</td><td class="num">${pts(g.total)}</td>${c.source === "replay" ? `<td>${esc(g.score || "")}</td>` : ""}</tr>`).join("")}</table></div></details>
+    <details class="card" style="margin-top:8px"><summary>OL and secondary starters out, all teams (${c.lines.length})</summary><div class="scroll"><table><tr><th>Team</th><th>Unit</th><th>Who</th></tr>
+      ${c.lines.map(l => `<tr><td>${esc(l.team)}</td><td>${esc(l.unit)}</td><td class="small">${esc(l.who)}</td></tr>`).join("")}</table></div></details>
+    <details class="card" style="margin-top:8px"><summary>Full injury report (${c.injuries.length} entries)</summary>
+      <div class="bar" style="margin:8px 0"><input id="injq" placeholder="Filter by team or player" style="width:240px"></div>
+      <div class="scroll"><table id="injt"><tr><th>Team</th><th>Player</th><th>Pos</th><th>Game status</th><th>Practice</th><th>Injury</th></tr>
       ${c.injuries.sort((a, b) => (a.team || "").localeCompare(b.team || "")).map(i => `<tr data-k="${esc(((i.team || "") + " " + (i.full_name || "")).toLowerCase())}"><td>${esc(i.team)}</td><td>${esc(i.full_name)}</td><td>${esc(i.position)}</td>
-        <td>${esc(i.report_status || "–")}</td><td class="small">${esc((i.practice_status || "").replace(" Participation in Practice", "").replace(" In Practice", ""))}</td><td class="small">${esc(i.injury || "")}</td></tr>`).join("")}</table></div>
-    ${c.espn_status && c.espn_status.length ? `<h2>ESPN designations (fantasy-relevant players)</h2><div class="card scroll"><table><tr><th>Player</th><th>Team</th><th>Pos</th><th>Status</th></tr>
-      ${c.espn_status.map(i => `<tr><td>${esc(i.name)}</td><td>${esc(i.team)}</td><td>${esc(i.pos)}</td><td>${esc(i.status)}</td></tr>`).join("")}</table></div>` : ""}`;
+        <td>${esc(i.report_status || "–")}</td><td class="small">${esc((i.practice_status || "").replace(" Participation in Practice", "").replace(" In Practice", ""))}</td><td class="small">${esc(i.injury || "")}</td></tr>`).join("")}</table></div></details>`;
   $("#injq").oninput = e => { const v = e.target.value.toLowerCase(); document.querySelectorAll("#injt tr[data-k]").forEach(tr => tr.style.display = tr.dataset.k.includes(v) ? "" : "none"); };
+  bindRanges([...r.players.me, ...r.players.opp]);
 }
 
 // ------------------------------------------------------------------ season tab
