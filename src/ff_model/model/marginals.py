@@ -80,11 +80,11 @@ SHARES = {"QB": ["f_pass_td_share", "f_rush_share"],
 CURVED = {"QB", "RB", "WR", "TE"}
 
 
-def _design(df: pl.DataFrame, pos: str, context_cols: list[str]) -> np.ndarray:
+def _design(df: pl.DataFrame, pos: str, context_cols: list[str], use_shares: bool = True) -> np.ndarray:
     # sqrt(proj) lets the spread bend with projection size instead of growing linearly
     proj = df["proj"].to_numpy()
     cols = [proj] + ([np.sqrt(np.clip(proj, 0, None))] if pos in CURVED else [])
-    cols += [proj * df[c].to_numpy() for c in SHARES[pos]]
+    cols += [proj * df[c].to_numpy() for c in SHARES[pos]] if use_shares else []
     cols += [proj * df[c].to_numpy() for c in context_cols]
     return np.column_stack(cols)
 
@@ -94,6 +94,7 @@ class Marginals:
     coefs: dict[str, list[list[float]]] = field(default_factory=dict)  # pos -> per tau [intercept, *betas]
     use_context: bool = False
     context_cols: dict[str, list[str]] = field(default_factory=dict)  # frozen at fit time
+    use_shares: bool = True  # False = "generic" shape: position + projection size only
 
     def _ctx(self, pos: str) -> list[str]:
         return self.context_cols.get(pos, []) if self.use_context else []
@@ -107,7 +108,7 @@ class Marginals:
         self.context_cols = {p: list(CONTEXT[p]) for p in SHARES} if self.use_context else {}
         for pos in SHARES:
             d = train.filter(pl.col("pos") == pos)
-            X, y = _design(d, pos, self._ctx(pos)), d["actual"].to_numpy()
+            X, y = _design(d, pos, self._ctx(pos), self.use_shares), d["actual"].to_numpy()
             rows = []
             for tau in TAUS:
                 m = QuantileRegressor(quantile=tau, alpha=alpha, solver="highs").fit(X, y)
@@ -124,21 +125,21 @@ class Marginals:
             idx = np.flatnonzero(pos == p)
             if idx.size == 0:
                 continue
-            X = _design(df[idx], p, self._ctx(p))
+            X = _design(df[idx], p, self._ctx(p), self.use_shares)
             B = np.array(rows)  # (tau, 1 + k)
             out[idx] = B[:, 0] + X @ B[:, 1:].T
         return np.maximum.accumulate(out, axis=1)  # no crossing
 
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"taus": TAUS.tolist(), "use_context": self.use_context,
+        path.write_text(json.dumps({"taus": TAUS.tolist(), "use_context": self.use_context, "use_shares": self.use_shares,
                                     "context_cols": self.context_cols, "coefs": self.coefs}, indent=1))
 
     @classmethod
     def load(cls, path: Path) -> "Marginals":
         d = json.loads(path.read_text())
         return cls(coefs=d["coefs"], use_context=d.get("use_context", False),
-                   context_cols=d.get("context_cols", {}))
+                   context_cols=d.get("context_cols", {}), use_shares=d.get("use_shares", True))
 
 
 def cdf(q: np.ndarray, y: np.ndarray, rng: np.random.Generator | None = None) -> np.ndarray:

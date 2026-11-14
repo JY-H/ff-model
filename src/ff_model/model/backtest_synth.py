@@ -43,13 +43,24 @@ NEUTRAL = {"roof": None, "wind": None, "temp": None, "exp_margin": None, "report
 
 def run_season(frame: pl.DataFrame, season: int, leagues: int = 10, n: int = 4000, seed: int = 0,
                variant: str = "model") -> pl.DataFrame:
-    """variant: model (as fit) | espn_mean (mean = ESPN projection) | espn_mean_ctx (ESPN + context shift)."""
+    """variant: model (as fit) | espn_mean (mean = ESPN projection) | espn_mean_ctx (ESPN + context shift)
+    | generic (position + projection-size shape only, ESPN mean, correlations re-estimated)
+    | shrunk (halfway between player-specific and generic shape, ESPN mean, correlations halved)."""
     train = frame.filter(pl.col("season") < season)
     t0 = time.time()
     marg = Marginals(use_context=True).fit(train)
     u = cdf(marg.quantiles(train), train["actual"].to_numpy(), np.random.default_rng(0))
     corr = C.estimate(C.assign_roles(train.with_columns(pl.Series("z", norm.ppf(np.clip(u, 1e-4, 1 - 1e-4))))))
-    log.info("season %d: fit on %d rows in %.0fs", season, train.height, time.time() - t0)
+    gen = None
+    if variant in ("generic", "shrunk"):
+        gen = Marginals(use_context=False, use_shares=False).fit(train)
+    if variant == "generic":
+        ug = cdf(gen.quantiles(train), train["actual"].to_numpy(), np.random.default_rng(0))
+        corr = C.estimate(C.assign_roles(train.with_columns(pl.Series("z", norm.ppf(np.clip(ug, 1e-4, 1 - 1e-4))))))
+    if variant == "shrunk":
+        corr = dict(corr, same=(np.eye(len(C.ROLES)) + 0.5 * (np.array(corr["same"]) - np.eye(len(C.ROLES)))).tolist(),
+                    opp=(0.5 * np.array(corr["opp"])).tolist())
+    log.info("season %d (%s): fit on %d rows in %.0fs", season, variant, train.height, time.time() - t0)
 
     test = C.assign_roles(frame.filter(pl.col("season") == season)).with_columns(
         pl.col("espn_id").alias("player_id"), pl.lit(BENCH).alias("slot"), pl.lit(False).alias("locked"),
@@ -61,6 +72,10 @@ def run_season(frame: pl.DataFrame, season: int, leagues: int = 10, n: int = 400
     elif variant == "espn_mean_ctx":
         neutral = test.with_columns([pl.lit(v).cast(test.schema[c]).alias(c) for c, v in NEUTRAL.items() if c in test.columns])
         q = anchor(q, proj, marg.quantiles(neutral))
+    elif variant == "generic":
+        q = anchor(gen.quantiles(test), proj)
+    elif variant == "shrunk":
+        q = anchor(0.5 * q + 0.5 * gen.quantiles(test), proj)
     q_of = dict(zip(test["player_id"].to_list(), q))
     rng = np.random.default_rng(seed + season)
     rows = []

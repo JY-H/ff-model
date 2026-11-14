@@ -53,7 +53,7 @@ def main(argv=None) -> None:
     bs = sub.add_parser("backtest-synth", help="walk-forward synthetic-league backtest, 2022-2025 (long)")
     bs.add_argument("--leagues", type=int, default=10)
     bs.add_argument("--draws", type=int, default=4000)
-    bs.add_argument("--variant", default="model", choices=["model", "espn_mean", "espn_mean_ctx"])
+    bs.add_argument("--variant", default="model", choices=["model", "espn_mean", "espn_mean_ctx", "generic", "shrunk"])
     wb = sub.add_parser("web", help="open the recommendation page (local only)")
     wb.add_argument("--port", type=int, default=8765)
     wb.add_argument("--no-browser", action="store_true")
