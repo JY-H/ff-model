@@ -41,10 +41,10 @@ Head-to-head is a win/lose payoff, so variance and correlation with the opponent
 |---|---|
 | 1. Archiver | ✅ Live since 2026-11-13 |
 | 2. Historical data | ✅ nflverse + ESPN projections 2019–2025 + league scoring |
-| 3. Player distributions | ⏭️ Next |
-| 4. Correlation model | Not started |
-| 5. Optimizer + late swap | Not started |
-| 6. Backtest and live tracking | Not started |
+| 3. Player distributions | ✅ Quantile model with context (weather, spread, injuries, OL/DB) |
+| 4. Correlation model | ✅ Role-pair copula, validated on 2024–2025 sums |
+| 5. Optimizer + late swap | ✅ `recommend` command; web page not built yet |
+| 6. Backtest and live tracking | ⏭️ Next |
 
 ### 1. Archiver ✅
 
@@ -151,7 +151,10 @@ Later phases go in sibling packages (`model/`, `optimize/`, `web/`).
 | `reparse` | rebuild the derived tables from saved raw responses |
 | `backfill-finals WEEKS…` | save final lineups and points for past weeks |
 | `nflverse` | download or refresh nflverse history (run by hand on Tuesdays) |
-| `espn-history` | download ESPN projections 2019–2025 (resumable) |
+| `espn-history [--seasons] [--weeks]` | download ESPN weekly projections (2019–2025; completed weeks of 2026) |
+| `fit-marginals` | refit player distributions on 2019–2025 (~4 min) |
+| `fit-correlation` | re-estimate role-pair correlations |
+| `recommend [--snapshot N]` | best lineup by P(win) for my matchup from the latest (or given) snapshot |
 
 **Data** (all under `data/`, gitignored, only on this laptop):
 
