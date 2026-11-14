@@ -49,6 +49,9 @@ def main(argv=None) -> None:
     eh.add_argument("--weeks", type=int, nargs="*", help="only these weeks (e.g. completed weeks this season)")
     sub.add_parser("fit-marginals", help="fit player distributions on 2019-2025 and save")
     sub.add_parser("fit-correlation", help="estimate role-pair correlations on 2019-2025 and save")
+    wb = sub.add_parser("web", help="open the recommendation page (local only)")
+    wb.add_argument("--port", type=int, default=8765)
+    wb.add_argument("--no-browser", action="store_true")
     rc = sub.add_parser("recommend", help="best lineup by P(win) for my matchup")
     rc.add_argument("--snapshot", type=int, help="default: latest snapshot")
     rc.add_argument("--draws", type=int, default=20000)
@@ -81,6 +84,10 @@ def main(argv=None) -> None:
         from .model.correlation import CORR_PATH, fit_live
         fit_live()
         print(f"saved {CORR_PATH}")
+        return
+    if args.cmd == "web":
+        from .web.server import serve
+        serve(args.port, not args.no_browser)
         return
     if args.cmd == "recommend":
         from .model.optimize import format_text, recommend
