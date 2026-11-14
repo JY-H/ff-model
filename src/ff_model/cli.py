@@ -12,10 +12,11 @@ from .archive.parse import parse_snapshot
 from .config import LOG_DIR
 from .db import connect
 
+
 def _setup_logging(verbose: bool) -> None:
     LOG_DIR.mkdir(exist_ok=True)
     fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
-    fh = RotatingFileHandler(LOG_DIR / "runner.log", maxBytes=2_000_000, backupCount=5)
+    fh = RotatingFileHandler(LOG_DIR / "archiver.log", maxBytes=2_000_000, backupCount=5)
     fh.setFormatter(fmt)
     root = logging.getLogger()
     root.setLevel(logging.INFO)
