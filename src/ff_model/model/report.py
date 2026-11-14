@@ -319,6 +319,75 @@ def _vacated_who(source: str, sid: int | None, week: int) -> dict:
             for r in v.filter(pl.col("week") == week).iter_rows(named=True) if r["vacated_who"]}
 
 
+@lru_cache(maxsize=1)
+def _season_projection_history() -> dict[int, list[dict]]:
+    """player_id -> [{week, proj, actual}] for completed weeks with ESPN history (league scoring)."""
+    from ..research.projection_errors import build
+    weeks = sorted({int(p.stem[1:3]) for p in (DATA_DIR / "espn_history" / str(SEASON)).glob("w*-p0.json.gz")})
+    if not weeks:
+        return {}
+    df = build([SEASON]).filter(pl.col("week").is_in(weeks))
+    out: dict[int, list[dict]] = {}
+    for r in df.select("espn_id", "week", "proj", "actual", "played").iter_rows(named=True):
+        out.setdefault(r["espn_id"], []).append({"week": r["week"], "proj": r["proj"],
+                                                  "actual": r["actual"] if r["played"] else 0.0, "played": r["played"]})
+    return out
+
+
+def _history(con, ids: list[int], week: int, upto_sid: int | None) -> dict[int, dict]:
+    """Per player: ESPN projection at each snapshot this week (and status), plus the season so far."""
+    week_rows: dict[int, list[dict]] = {}
+    if upto_sid is not None and ids:
+        q = (f"SELECT p.player_id, s.id, s.started_at, s.slot_key, p.proj_points, p.injury_status FROM player_snapshots p"
+             f" JOIN snapshots s ON s.id = p.snapshot_id WHERE s.week = ? AND s.id <= ?"
+             f" AND (s.slot_key IS NULL OR s.slot_key NOT LIKE '%backfill')"
+             f" AND p.player_id IN ({','.join('?' * len(ids))}) ORDER BY s.id")
+        team_of = {}
+        for pid, sid, at, slot, proj, st in con.execute(q, (week, upto_sid, *ids)):
+            week_rows.setdefault(pid, []).append({"snapshot": sid, "at": at, "slot": slot, "proj": proj, "status": st})
+        for pid, team in con.execute(f"SELECT player_id, MAX(pro_team_id) FROM player_snapshots WHERE snapshot_id <= ?"
+                                     f" AND player_id IN ({','.join('?' * len(ids))}) GROUP BY player_id", (upto_sid, *ids)):
+            team_of[pid] = team
+        # what changed on each NFL team between consecutive snapshots: status changes and projections zeroed
+        teams = sorted({t for t in team_of.values() if t is not None})
+        notes: dict[tuple, list[str]] = {}
+        if teams:
+            q2 = (f"SELECT p.pro_team_id, s.id, p.player_id, p.full_name, p.injury_status, p.proj_points FROM player_snapshots p"
+                  f" JOIN snapshots s ON s.id = p.snapshot_id WHERE s.week = ? AND s.id <= ?"
+                  f" AND (s.slot_key IS NULL OR s.slot_key NOT LIKE '%backfill')"
+                  f" AND p.pro_team_id IN ({','.join('?' * len(teams))}) ORDER BY s.id")
+            prev: dict[int, tuple] = {}
+            for team, sid, pid, name, st, proj in con.execute(q2, (week, upto_sid, *teams)):
+                before = prev.get(pid)
+                if before and (before[0] != st or (before[1] or 0) >= 3 > (proj or 0) or (proj or 0) >= 3 > (before[1] or 0)):
+                    if max(before[1] or 0, proj or 0) >= 3:  # skip deep reserves
+                        fmt = lambda x: (x or "–").replace("_", " ").title()
+                        change = f"{fmt(before[0])} → {fmt(st)}, " if before[0] != st else ""
+                        notes.setdefault((team, sid), []).append(
+                            f"{name}: {change}projection {before[1] or 0:.1f} → {proj or 0:.1f}")
+                prev[pid] = (st, proj)
+        for pid, rows_ in week_rows.items():
+            for h in rows_:
+                h["team_changes"] = [n for n in notes.get((team_of.get(pid), h["snapshot"]), []) if not n.startswith(
+                    (con.execute("SELECT full_name FROM player_snapshots WHERE player_id=? LIMIT 1", (pid,)).fetchone() or [""])[0] + ":")]
+    season = _season_projection_history()
+    live = {}
+    # live weeks before this one: ESPN's last projection of the week, and the final score if archived
+    for w, sid in con.execute("SELECT week, MAX(id) FROM snapshots WHERE week < ? AND status IN ('ok','partial')"
+                              " AND (slot_key IS NULL OR slot_key NOT LIKE '%backfill')"
+                              " AND EXISTS (SELECT 1 FROM player_snapshots p WHERE p.snapshot_id = snapshots.id)"
+                              " GROUP BY week", (week,)).fetchall():
+        fin = {r[0]: r[1] for r in con.execute("SELECT player_id, MAX(actual_points) FROM lineups WHERE scoring_period=?"
+                                               " GROUP BY player_id", (w,))}
+        for pid, proj in con.execute("SELECT player_id, proj_points FROM player_snapshots WHERE snapshot_id=?", (sid,)):
+            live.setdefault(pid, []).append({"week": w, "proj": proj, "actual": fin.get(pid), "played": fin.get(pid) is not None})
+    out = {}
+    for pid in ids:
+        hist = [h for h in season.get(pid, []) if h["week"] < week] + [h for h in live.get(pid, []) if h["week"] < week]
+        out[pid] = {"week": week_rows.get(pid, []), "season": sorted({h["week"]: h for h in hist}.values(), key=lambda h: h["week"])}
+    return out
+
+
 def build_report(week: int | None = None, team_id: int | None = None, snapshot_id: int | None = None,
                  overrides: dict | None = None, n: int = 20000, seed: int = 7) -> dict:
     overrides = overrides or {}
@@ -430,6 +499,7 @@ def build_report(week: int | None = None, team_id: int | None = None, snapshot_i
                                                    "Not a model input: ESPN's projection already moves for this (e.g. it raises the next players up)."],
                                        "evidence": [e for e in ev if e]})
         out["props"] = _props(con, sid, r["name"])
+        out["history"] = history.get(p, {"week": [], "season": []})
         if p in (dec.col or {}):
             x = dec.D[:, dec.col[p]]
             out["chance"] = {"beat_proj": float((x > r["proj"]).mean()), "dud": float((x < 5).mean()),
@@ -456,6 +526,7 @@ def build_report(week: int | None = None, team_id: int | None = None, snapshot_i
         return out
 
     rows = list(df.iter_rows(named=True))
+    history = _history(con, [r["player_id"] for r in rows], week, sid)
     me_rows = [player(i, r, "me") for i, r in enumerate(rows) if r["team_id"] == me_id]
     opp_rows = [player(i, r, "opp") for i, r in enumerate(rows) if r["team_id"] == opp_id]
 
