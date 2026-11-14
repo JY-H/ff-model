@@ -54,6 +54,7 @@ def main(argv=None) -> None:
     bs.add_argument("--leagues", type=int, default=10)
     bs.add_argument("--draws", type=int, default=4000)
     bs.add_argument("--variant", default="model", choices=["model", "espn_mean", "espn_mean_ctx", "generic", "shrunk"])
+    bs.add_argument("--seasons", type=int, nargs="*", default=[2022, 2023, 2024, 2025])
     wb = sub.add_parser("web", help="open the recommendation page (local only)")
     wb.add_argument("--port", type=int, default=8765)
     wb.add_argument("--no-browser", action="store_true")
@@ -96,7 +97,7 @@ def main(argv=None) -> None:
         return
     if args.cmd == "backtest-synth":
         from .model.backtest_synth import run as run_synth
-        run_synth(leagues=args.leagues, n=args.draws, variant=args.variant)
+        run_synth(seasons=args.seasons, leagues=args.leagues, n=args.draws, variant=args.variant)
         return
     if args.cmd == "web":
         from .web.server import serve

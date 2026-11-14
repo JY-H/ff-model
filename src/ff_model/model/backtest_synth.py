@@ -29,6 +29,15 @@ PER_TEAM = {p: n // 16 for p, n in POOL.items()}                       # 2/5/5/2
 OUT_DIR = DATA_DIR / "backtest_synth"
 
 
+def week_quantiles(wk: pl.DataFrame, q: np.ndarray) -> dict:
+    """player_id -> quantile curve for ONE week. (A player appears every week, so a season-wide
+    player_id -> curve map silently keeps only one week's curve; that bug once invalidated this backtest.)"""
+    ids = wk["player_id"].to_list()
+    if len(ids) != len(set(ids)):
+        raise ValueError("player_id is not unique within the week")
+    return dict(zip(ids, q[wk["_qi"].to_numpy()]))
+
+
 def _max_proj_lineup(roster: pl.DataFrame) -> list[int]:
     picked = []
     for pos, k in (("QB", 1), ("RB", 2), ("WR", 2), ("TE", 1), ("K", 1), ("D/ST", 1)):
@@ -76,11 +85,12 @@ def run_season(frame: pl.DataFrame, season: int, leagues: int = 10, n: int = 400
         q = anchor(gen.quantiles(test), proj)
     elif variant == "shrunk":
         q = anchor(0.5 * q + 0.5 * gen.quantiles(test), proj)
-    q_of = dict(zip(test["player_id"].to_list(), q))
     rng = np.random.default_rng(seed + season)
+    test = test.with_row_index("_qi")
     rows = []
     for week in sorted(test["week"].unique()):
         wk = test.filter(pl.col("week") == week)
+        q_of = week_quantiles(wk, q)
         pools = {p: wk.filter(pl.col("pos") == p).sort("proj", descending=True).head(POOL[p]) for p in POOL}
         if any(pools[p].height < POOL[p] for p in POOL):
             continue
