@@ -54,6 +54,9 @@ td { padding: 6px; border-bottom: 1px solid var(--grid); vertical-align: middle;
 .h2h td.slot { text-align: center; font-weight: 600; color: var(--text-secondary); font-size: 12px; background: var(--surface-0); width: 52px; }
 .h2h td.r { text-align: right; } .h2h .rec { box-shadow: inset 3px 0 0 var(--me); }
 .three tr.diffrow td:not([style*="background"]) { background: var(--hl); } .ctr { text-align: center; }
+tr.gamehdr td { background: var(--surface-0); border-top: 1px solid var(--border); padding-top: 8px; }
+.swaps { border-left: 4px solid var(--me); } .swaps.ok { border-left-color: var(--good); }
+.swaps.urgent { border-left-color: var(--critical); } tr.urgentrow td { background: color-mix(in srgb, var(--critical) 14%, transparent); }
 .dsmall { font-size: 11px; color: var(--text-secondary); margin-left: 3px; }
 .legend { display: flex; gap: 14px; font-size: 12px; color: var(--text-secondary); align-items: center; flex-wrap: wrap; }
 .tip { position: fixed; pointer-events: none; background: var(--surface-1); color: var(--text-primary); border: 1px solid var(--border);
@@ -314,6 +317,23 @@ function replayTable(r) {
     <p class="small muted" style="margin:6px 0 0">Highlighted rows: the lineups disagree about that player. ESPN = ESPN's projection; Model = the model's expected points, tinted blue when above ESPN and red when below; Final = actual.
       RB/WR/TE in the FLEX count the same as in their own slot. The model decided without knowing any results.</p></div>`;
 }
+function swapsCard(r) {
+  const w = r.swaps; if (!w) return "";
+  const gain = w.p_win_recommended - w.p_win_current;
+  const status = p => p.unavailable ? `<span class="chip status" style="--dot:var(--critical)">${p.status === "IR" ? "on IR" : p.status === "Out" ? "ruled Out" : p.status === "Suspended" ? "suspended" : "bye or inactive"}: can't score</span>` : "";
+  const person = p => !p ? `<span class="muted">(empty slot)</span>` : `<span class="clickable" data-player="${p.id}"><b>${esc(p.name)}</b></span>
+    <span class="pmeta">${esc(p.pos || "")} · ${esc(p.team || "")} · ESPN ${pts(p.proj)}${p.model_mean != null ? ` · model ${pts(p.model_mean)}` : ""}</span> ${status(p)}`;
+  if (!w.pairs.length) return `<div class="card swaps ok" style="margin-top:10px"><b>✓ ${r.source === "live" ? "Your current lineup matches the recommendation." : "The model would have started the same lineup."}</b></div>`;
+  const urgent = w.pairs.some(x => x.urgent);
+  return `<div class="card swaps ${urgent ? "urgent" : ""}" style="margin-top:10px">
+    <div class="bar"><b>${r.source === "live" ? "Swaps to make" : "What the model would have changed"}</b>
+      <span class="chip">P(win) ${pct(w.p_win_current, 1)} with ${esc(w.label)} → ${pct(w.p_win_recommended, 1)} recommended (${sgn(100 * gain)} pts)</span></div>
+    <table style="margin-top:6px">${w.pairs.map(x => `<tr class="${x.urgent ? "urgentrow" : ""}">
+      <td style="width:28px">${x.urgent ? '<span aria-label="urgent">⚠</span>' : "⇄"}</td>
+      <td><span class="small secondary">Bench</span> ${person(x.out)}</td><td class="small secondary" style="width:24px">→</td>
+      <td>${x.in ? `<span class="small secondary">Start</span> ${person(x.in)}` : `<span class="muted">${esc(x.note || "leave empty")}</span>`}</td></tr>`).join("")}</table>
+    ${urgent ? `<p class="small" style="margin:6px 0 0">⚠ = a current starter who can't score this week (bye, IR, Out, or inactive). Swap regardless of the model.</p>` : ""}</div>`;
+}
 function renderMatchup(r) {
   const replay = r.source === "replay";
   $("#title").textContent = `Start/Sit · Week ${r.week}`;
@@ -342,7 +362,8 @@ function renderMatchup(r) {
         : `<div class="card tile"><div class="label">ESPN's win probability</div><div class="value">${pct(r.espn_win_prob)}</div><div class="sub">same snapshot</div></div>`}
       <div class="card tile"><div class="label">Expected score</div><div class="value">${pts(r.my_mean, 0)} – ${pts(r.opp_mean, 0)}</div><div class="sub">80% ranges: you ${pts(r.my_range[0], 0)}–${pts(r.my_range[2], 0)} · them ${pts(r.opp_range[0], 0)}–${pts(r.opp_range[2], 0)}</div></div>
     </div>
-    <div class="card" style="margin-top:10px"><b>${changed ? `Start ${r.changes.start.map(esc).join(", ")}; bench ${r.changes.bench.map(esc).join(", ")}.` : "The highest-projection lineup is already the best bet."}</b>
+    ${swapsCard(r)}
+    <div class="card" style="margin-top:10px"><span class="small secondary">Compared with the highest-projection lineup:</span> <b>${changed ? `start ${r.changes.start.map(esc).join(", ")}; bench ${r.changes.bench.map(esc).join(", ")}.` : "the highest-projection lineup is already the best bet."}</b>
       <span class="chip" style="margin-left:6px">${r.p_win >= 0.99 || r.p_win <= 0.01
         ? `Effectively decided: every lineup is about ${pct(r.p_win)} to win, so the pick goes to the most expected points`
         : r.close ? "Close call: runner-up within 1 pt" : "Clear: runner-up more than 1 pt behind"}</span>
@@ -468,22 +489,32 @@ function renderContext(c, r) {
                  p.injury || "", p.games_back === 1 || p.games_back === 2 ? (p.games_back === 1 ? "1st" : "2nd") + " game back" : ""].filter(Boolean).join(" · ");
     const total = Object.values(p.effects || {}).reduce((a, b) => a + b, 0);
     return `<tr class="clickable" data-player="${p.id}"><td><span class="pname">${esc(p.name)}</span> <span class="pmeta">${esc(p.pos)} · ${esc(p.team)} vs ${esc(p.opp)}${starters.has(p.id) ? "" : " · bench"}</span></td>
-      <td class="small">${side}</td><td class="small" style="white-space:nowrap">${when(p.kickoff)}</td><td class="small">${esc(weatherText(p))}</td>
-      <td class="small">${p.spread != null ? (p.spread >= 0 ? `fav ${pts(p.spread)}` : `dog ${pts(-p.spread)}`) : "–"}${p.total ? ` · O/U ${pts(p.total)}` : ""}</td>
+      <td class="small">${side}</td>
       <td class="small">${esc(inj) || '<span class="muted">–</span>'}</td>
       <td class="small">${lines ? esc(lines.details.filter(d => !d.startsWith("Starters =")).join(" ")) : '<span class="muted">–</span>'}</td>
       ${effectTd(total)}</tr>`;
   };
-  const all = [...mine.map(p => [p, "You"]), ...theirs.map(p => [p, "Opp"])]
-    .sort((a, b) => (starters.has(b[0].id) - starters.has(a[0].id)) || (a[0].kickoff || "").localeCompare(b[0].kickoff || ""));
+  const all = [...mine.map(p => [p, "You"]), ...theirs.map(p => [p, "Opp"])];
+  // group by game, in kickoff order; one header row per game with the shared context
+  const gkey = p => [p.team, p.opp].sort().join("-");
+  const byGame = {};
+  for (const [p, side] of all) (byGame[gkey(p)] ||= []).push([p, side]);
+  const gameRows = Object.values(byGame).sort((a, b) => (a[0][0].kickoff || "").localeCompare(b[0][0].kickoff || "")).map(list => {
+    const p0 = list[0][0], g = c.games.find(x => [x.home, x.away].sort().join("-") === gkey(p0)) || {};
+    list.sort((a, b) => (starters.has(b[0].id) - starters.has(a[0].id)) || (a[1] === "You" ? -1 : 1) - (b[1] === "You" ? -1 : 1) || b[0].proj - a[0].proj);
+    const line = g.home_spread != null ? `${esc(g.home)} ${sgn(g.home_spread)}` : "";
+    return `<tr class="gamehdr"><td colspan="5"><b>${esc(g.away || p0.team)} @ ${esc(g.home || p0.opp)}</b>
+        <span class="secondary small"> · ${when(p0.kickoff)} · ${esc(weatherText(p0))}${line ? " · " + line : ""}${g.total ? " · O/U " + pts(g.total) : ""}${g.score ? " · final " + esc(g.score) : ""}</span></td></tr>
+      ${list.map(([p, side]) => ctxRow(p, side)).join("")}`;
+  }).join("");
   $("#main").innerHTML = `
     <p class="secondary small" style="margin-top:10px">${c.source === "live" ? `What the archive held at snapshot #${c.snapshot_id}.` : "Replay week: weather measured at game time, closing lines, final injury reports."}
       Showing ${esc(r.me.name)} vs ${esc(r.opponent.name)}; change the team above to see another matchup.</p>
     <h2>Your matchup</h2>
     <div class="card scroll"><table>
-      <tr><th>Player</th><th>Team</th><th>Kickoff</th><th>Weather</th><th>Line</th><th>Injury report</th><th>OL / secondary out</th><th class="num">Context effect</th></tr>
-      ${all.map(([p, side]) => ctxRow(p, side)).join("")}</table>
-      <p class="small muted" style="margin:6px 0 0">Starters first, then bench. Click a player for the full explanation. OL/DB notes appear where the model uses them (own OL for QB/RB, opponent OL for D/ST, opponent secondary for QB).</p></div>
+      <tr><th>Player</th><th>Team</th><th>Injury report</th><th>OL / secondary out</th><th class="num">Context effect</th></tr>
+      ${gameRows}</table>
+      <p class="small muted" style="margin:6px 0 0">Grouped by game in kickoff order; within a game, starters first. Click a player for the full explanation. OL/DB notes appear where the model uses them (own OL for QB/RB, opponent OL for D/ST, opponent secondary for QB).</p></div>
     <h2>Games with players from this matchup</h2>
     <div class="card scroll"><table><tr><th>Kickoff</th><th>Game</th><th>Roof / weather</th><th class="num">Home line</th><th class="num">O/U</th><th>${esc(r.me.name)}</th><th>${esc(r.opponent.name)}</th>${c.source === "replay" ? "<th>Final</th>" : ""}</tr>
       ${myGames.map(g => `<tr><td class="small">${when(g.kickoff)}</td><td>${esc(g.away)} @ ${esc(g.home)}</td><td class="small">${esc(weatherText(g))}</td>

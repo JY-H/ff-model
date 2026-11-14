@@ -435,6 +435,45 @@ def build_report(week: int | None = None, team_id: int | None = None, snapshot_i
     reason = _reason(float(dec.pwin[dec.max_proj]), {p for p in ins if p in by_id}, {p for p in outs if p in by_id},
                      by_id, opp_start, df)
 
+    # swaps vs the lineup currently set (live) / actually started (replay)
+    cur = mine.filter(~pl.col("slot").is_in([BENCH, IR]) & ~pl.col("locked"))
+    cur_ids = set(cur["player_id"])
+
+    def pwin_of(ids):
+        cols = [dec.col[p] for p in ids if p in (dec.col or {})]
+        tot = dec.fixed_me + dec.D[:, cols].sum(axis=1)
+        d = tot - dec.opp_total
+        return float((d > 0).mean() + 0.5 * (d == 0).mean())
+    rows_by_id = {r["player_id"]: r for r in df.iter_rows(named=True)}
+
+    def brief(p):
+        r = rows_by_id[p]
+        return {"id": p, "name": r["name"], "pos": r["pos"] or (names_raw.get(p) or (None, None))[1], "team": r["team"], "proj": r["proj"],
+                "model_mean": float(means[list(df["player_id"]).index(p)]) if p in dec.col else None,
+                "status": r["report_status"] or {"INJURY_RESERVE": "IR", "OUT": "Out", "SUSPENSION": "Suspended"}.get(
+                    (names_raw.get(p) or (None, None, None))[2]), "unavailable": bool(r["unavailable"]) and not r["locked"],
+                "slot": SLOT.get(r["slot"], "BE")}
+    group = {"QB": "QB", "RB": "FLEX", "WR": "FLEX", "TE": "FLEX", "FLEX": "FLEX", "D/ST": "D/ST", "K": "K"}
+
+    def pos_of(p):
+        return rows_by_id[p]["pos"] or (names_raw.get(p) or (None, None))[1]
+    # outgoing: current starters not in the recommendation, keyed by the slot they occupy now
+    outs = [(group.get(SLOT.get(rows_by_id[p]["slot"]), "FLEX"), p) for p in cur_ids - best_ids]
+    # incoming: recommended players not currently starting, plus empty slots nobody can fill
+    ins = [(group.get(best_slot.get(p), "FLEX"), p) for p in best_ids - cur_ids]
+    ins += [(group.get(sl, "FLEX"), None) for sl, p in dec.lineups[dec.best] if isinstance(p, str)]
+    pairs = []
+    for g in ["QB", "FLEX", "D/ST", "K"]:
+        o = sorted([p for gg, p in outs if gg == g], key=lambda p: -(rows_by_id[p]["unavailable"] or 0))
+        i = sorted([p for gg, p in ins if gg == g], key=lambda p: (p is None, -(rows_by_id[p]["proj"] or 0) if p else 0))
+        for k in range(max(len(o), len(i))):
+            po, pi = (o[k] if k < len(o) else None), (i[k] if k < len(i) else None)
+            pairs.append({"out": brief(po) if po else None, "in": brief(pi) if pi else None,
+                          "urgent": bool(po and rows_by_id[po]["unavailable"]), "group": g,
+                          "note": "no available player at this position" if po and pi is None else None})
+    swaps = {"pairs": pairs, "p_win_current": pwin_of(cur_ids), "p_win_recommended": float(dec.pwin[dec.best]),
+             "label": "your current lineup" if source == "live" else "the lineup that was started"}
+
     locked_rows = mine.filter(pl.col("locked") & ~pl.col("slot").is_in([BENCH, IR]))
     proj_of = dict(zip(df["player_id"].to_list(), df["proj"].to_list()))
     mean_of = dict(zip(df["player_id"].to_list(), means.tolist()))
@@ -479,6 +518,7 @@ def build_report(week: int | None = None, team_id: int | None = None, snapshot_i
         "alternatives": [alt(int(k)) for k in order[1:6]],
         "locked_count": int(mine.filter(pl.col("locked") & ~pl.col("slot").is_in([BENCH, IR])).height),
         "players": {"me": me_rows, "opp": opp_rows}, "outcome": outcome, "lineup_totals": lineup_totals, "draws": n,
+        "swaps": swaps,
         "teams": [{"id": k, "name": v} for k, v in sorted(names.items(), key=lambda kv: kv[1].lower())],
     }
 
