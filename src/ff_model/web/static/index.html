@@ -24,27 +24,37 @@
   }
 }
 * { box-sizing: border-box; }
-body { margin: 0; font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
-.viz-root { background: var(--surface-0); color: var(--text-primary); min-height: 100vh; padding: 16px 20px 48px; }
-h1 { font-size: 20px; margin: 0; } h2 { font-size: 16px; margin: 24px 0 8px; } h3 { font-size: 14px; margin: 16px 0 6px; }
+body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
+.viz-root { background: var(--surface-0); color: var(--text-primary); min-height: 100vh; padding: 0 24px 56px; }
+.viz-root > * { max-width: 1320px; margin-left: auto; margin-right: auto; }
+.appbar { position: sticky; top: 0; z-index: 15; background: color-mix(in srgb, var(--surface-0) 92%, transparent);
+  backdrop-filter: blur(8px); padding-top: 18px; margin-bottom: 4px; }
+.brand .eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--me); }
+.brand .subtitle { font-size: 13px; color: var(--text-secondary); margin-top: 2px; }
+h1 { font-size: 24px; font-weight: 700; letter-spacing: -.01em; margin: 2px 0 0; }
+h2 { font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); margin: 32px 0 10px; }
+h3 { font-size: 15px; font-weight: 650; margin: 16px 0 8px; } .card > h3:first-child { margin-top: 0; }
+.intro { font-size: 13px; color: var(--text-secondary); line-height: 1.55; max-width: 1000px; margin: 14px 0 12px; }
 .muted { color: var(--text-muted); } .secondary { color: var(--text-secondary); } .small { font-size: 12px; }
 .bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .spacer { flex: 1; }
-select, button, input { font: inherit; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border);
+select, button, input { font: inherit; padding: 7px 11px; border-radius: 8px; border: 1px solid var(--border);
   background: var(--surface-1); color: var(--text-primary); }
 button { cursor: pointer; } button:disabled { opacity: .5; cursor: wait; }
 button.primary { background: var(--me); color: #fff; border-color: var(--me); }
-.tabs { display: flex; gap: 4px; margin-top: 12px; border-bottom: 1px solid var(--border); }
-.tabs button { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 8px 12px; color: var(--text-secondary); }
-.tabs button.on { color: var(--text-primary); border-bottom-color: var(--text-primary); font-weight: 600; }
+.tabs { display: flex; gap: 2px; margin-top: 14px; border-bottom: 1px solid var(--border); overflow-x: auto; }
+.tabs button { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 10px 14px; color: var(--text-secondary); font-weight: 500; white-space: nowrap; }
+.tabs button:hover { color: var(--text-primary); }
+.tabs button.on { color: var(--text-primary); border-bottom-color: var(--me); font-weight: 650; }
+.dtabs button.on { border-bottom-color: var(--text-primary); }
 .chips { display: flex; gap: 5px; flex-wrap: wrap; }
 .chip { background: var(--chip); color: var(--text-secondary); border-radius: 999px; padding: 2px 9px; font-size: 12px; }
 .chip.link.stack { box-shadow: inset 0 0 0 1px var(--me); } .chip.link.hedge { box-shadow: inset 0 0 0 1px var(--good); }
 .chip.link.risk { box-shadow: inset 0 0 0 1px var(--critical); }
 .chip.status::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; background: var(--dot); }
-.card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
-.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 12px; }
-.tile .label { color: var(--text-secondary); font-size: 12px; } .tile .value { font-size: 28px; font-weight: 650; }
+.card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-top: 14px; }
+.tile .label { color: var(--text-muted); font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; } .tile .value { font-size: 30px; font-weight: 700; letter-spacing: -.01em; margin-top: 4px; }
 .tile .sub { color: var(--text-muted); font-size: 12px; }
 tr.hl td { background: var(--hl); }
 .story .srow { display: grid; grid-template-columns: 92px 1fr; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--grid); line-height: 1.5; }
@@ -54,10 +64,11 @@ tr.hl td { background: var(--hl); }
 .story .why div::before { content: "→ "; color: var(--text-muted); }
 .story .up { color: var(--win); } .story .down { color: var(--loss); }
 @media (max-width: 700px) { .hide-sm { display: none; } }
-.grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin-top: 10px; }
+.grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; margin-top: 14px; }
 table { width: 100%; border-collapse: collapse; }
-th { text-align: left; font-weight: 600; font-size: 12px; color: var(--text-secondary); padding: 6px; border-bottom: 1px solid var(--border); white-space: nowrap; }
-td { padding: 6px; border-bottom: 1px solid var(--grid); vertical-align: middle; }
+th { text-align: left; font-weight: 600; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--text-muted); padding: 8px 6px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+td { padding: 7px 6px; border-bottom: 1px solid var(--grid); vertical-align: middle; }
+tr:last-child > td { border-bottom: none; }
 .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pname { font-weight: 600; } .pmeta { font-size: 12px; color: var(--text-muted); }
 .nc { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
@@ -112,7 +123,7 @@ aside#drawer.open { transform: none; }
 .kv div { background: var(--surface-0); border-radius: 6px; padding: 6px 8px; } .kv b { display: block; font-size: 16px; }
 body { overflow-x: hidden; } .card, #main { min-width: 0; }
 @media (max-width: 900px) {
-  .grid2 { grid-template-columns: 1fr; } .viz-root { padding: 12px; }
+  .grid2 { grid-template-columns: 1fr; } .viz-root { padding: 0 12px 40px; }
   .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } .tile .value { font-size: 22px; }
   .bar label { width: 100%; display: flex; gap: 8px; align-items: center; } .bar select { flex: 1; min-width: 0; }
   .bar .spacer { display: none; } #fresh { width: 100%; }
@@ -121,8 +132,9 @@ body { overflow-x: hidden; } .card, #main { min-width: 0; }
 </head>
 <body>
 <div class="viz-root" id="root">
+  <header class="appbar">
   <div class="bar">
-    <h1 id="title">Start/Sit</h1>
+    <div class="brand"><div class="eyebrow">Start/Sit</div><h1 id="title">Weekly Matchup</h1><div class="subtitle" id="subtitle"></div></div>
     <span class="spacer"></span>
     <label class="small secondary">Week <select id="week"></select></label>
     <label class="small secondary">Team <select id="team"></select></label>
@@ -130,8 +142,9 @@ body { overflow-x: hidden; } .card, #main { min-width: 0; }
     <button id="fresh" title="Fetch ESPN projections, injuries and weather now (no odds credits)">Fresh snapshot</button>
   </div>
   <div class="tabs" id="tabs">
-    <button data-tab="matchup" class="on">Matchup</button><button data-tab="context">Week context</button><button data-tab="season">Season</button><button data-tab="review">Review</button>
+    <button data-tab="matchup" class="on">Weekly Matchup</button><button data-tab="context">Weekly Context</button><button data-tab="review">Weekly Review</button><button data-tab="season">Season Overview</button>
   </div>
+  </header>
   <div id="main"><div class="loading">Loading…</div></div>
   <aside id="drawer" aria-label="Player details"></aside>
   <div class="tip" id="tip"></div>
@@ -165,6 +178,9 @@ const modelTd = p => p.locked || p.unavailable ? `<td class="num">–</td>`
   : `<td class="num" title="${esc(whyTitle(p))}" style="${tint(p.model_mean - p.proj)}">${pts(p.model_mean)} ${signed(p.model_mean - p.proj)}</td>`;
 const effectTd = d => `<td class="num" style="${tint(d)}">${Math.abs(d) < 0.1 ? "±0" : sgn(d)}</td>`;
 
+const TAB_NAMES = {matchup: "Weekly Matchup", context: "Weekly Context", review: "Weekly Review", season: "Season Overview"};
+function setHeader(sub) { $("#title").textContent = TAB_NAMES[S.tab]; $("#subtitle").innerHTML = sub;
+  document.title = `${TAB_NAMES[S.tab]} · Start/Sit`; }
 const S = {weeks: [], teams: [], me: null, week: null, team: null, snapshot: null, tab: "matchup", report: null,
            overrides: {force_in: [], force_out: [], proj_delta: {}}};
 
@@ -194,6 +210,8 @@ function syncControls() {
   if (live) $("#snap").innerHTML = wk.snapshots.map(s => `<option value="${s.id}">#${s.id} · ${esc(s.slot_key ? s.slot_key.split("-").pop() : "manual")} · ${when(s.started_at)}</option>`).join("");
   if (S.snapshot) $("#snap").value = S.snapshot;
   document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === S.tab));
+  $("#week").parentElement.style.display = S.tab === "season" ? "none" : "";  // the season view covers every week
+  if (S.tab === "season") { $("#snapwrap").style.display = "none"; $("#fresh").style.display = "none"; }
 }
 $("#week").onchange = e => { S.week = +e.target.value; S.snapshot = null; resetOverrides(); syncControls(); route(); };
 $("#team").onchange = e => { S.team = +e.target.value; resetOverrides(); route(); };
@@ -427,7 +445,7 @@ function heroCard(r, replay) {
 }
 function renderMatchup(r) {
   const replay = r.source === "replay";
-  $("#title").textContent = `Start/Sit · Week ${r.week}`;
+  setHeader(`Week ${r.week} · ${esc(r.me.name)} vs ${esc(r.opponent.name)}${r.source === "replay" ? " · replay" : ""}`);
   const me = slotLists(r.players.me, "me"), op = slotLists(r.players.opp, "opp");
   S.sc = scaleFor([...r.players.me, ...r.players.opp].filter(p => !p.unavailable));
   const gain = r.p_win - r.p_win_max_proj, changed = r.changes.start.length > 0;
@@ -629,7 +647,7 @@ function weatherText(g) {
   return `${Math.round(g.wind)} mph${g.gust ? ` (gusts ${Math.round(g.gust)})` : ""}, ${Math.round(g.temp)}°F${g.precip_prob != null ? `, ${Math.round(g.precip_prob)}% rain` : ""}`;
 }
 function renderContext(c, r) {
-  $("#title").textContent = `Start/Sit · Week ${c.week} context`;
+  setHeader(`Week ${c.week} · every game, line, forecast and injury report`);
   const mine = r.players.me.filter(p => !p.unavailable), theirs = r.players.opp.filter(p => !p.unavailable);
   const starters = new Set([...mine.filter(p => p.recommended || (p.locked && !["BE", "IR"].includes(p.slot))), ...theirs.filter(p => p.starting)].map(p => p.id));
   const teams = new Set([...mine, ...theirs].map(p => p.team));
@@ -663,7 +681,7 @@ function renderContext(c, r) {
       ${list.map(([p, side]) => ctxRow(p, side)).join("")}`;
   }).join("");
   $("#main").innerHTML = `
-    <p class="secondary small" style="margin-top:10px">${c.source === "live" ? `What the archive held at snapshot #${c.snapshot_id}.` : "Replay week: weather measured at game time, closing lines, final injury reports."}
+    <p class="intro">${c.source === "live" ? `What the archive held at snapshot #${c.snapshot_id}.` : "Replay week: weather measured at game time, closing lines, final injury reports."}
       Showing ${esc(r.me.name)} vs ${esc(r.opponent.name)}; change the team above to see another matchup.</p>
     <h2>Your matchup</h2>
     <div class="card scroll"><table class="bygame">
@@ -694,10 +712,10 @@ function renderContext(c, r) {
 
 // ------------------------------------------------------------------ season tab
 function renderSeason(t) {
-  $("#title").textContent = `Start/Sit · ${t.team.name} season`;
+  setHeader(`${esc(t.team.name)} · ${t.weeks.length ? `Weeks ${t.weeks[0].week}–${t.weeks[t.weeks.length - 1].week}` : "no finished weeks yet"}`);
   const w = t.weeks, sum = k => w.reduce((s, x) => s + (x[k] || 0), 0);
   $("#main").innerHTML = `
-    <p class="secondary small" style="margin-top:10px">Each completed week replayed as of Sunday 11:45 ET: the model's lineup vs. the highest-projection lineup vs. what the team started, all scored on actual results. Live weeks join once final scores are archived (Tuesday).</p>
+    <p class="intro">Each completed week replayed as of Sunday 11:45 ET: the model's lineup vs. the highest-projection lineup vs. what the team started, all scored on actual results. Live weeks join once final scores are archived (Tuesday).</p>
     <div class="tiles">
       <div class="card tile"><div class="label">Record with the lineups started</div><div class="value">${w.filter(x => x.won).length}–${w.filter(x => !x.won).length}</div></div>
       <div class="card tile"><div class="label">Record with the model's lineups</div><div class="value">${w.filter(x => x.model_would_win).length}–${w.filter(x => !x.model_would_win).length}</div></div>
@@ -710,7 +728,21 @@ function renderSeason(t) {
         <td class="num">${pts(x.actual_points)}</td><td class="num">${pts(x.model_points)}</td><td class="num">${pts(x.maxproj_points)}</td><td class="num">${pts(x.opp_points)}</td>
         <td>${x.won ? "Won" : "Lost"}</td><td>${x.model_would_win ? "win" : "lose"}</td><td class="num">${pct(x.model_pwin)}</td><td class="small muted">${x.differs ? "model differs" : ""}</td></tr>`).join("")}
     </table></div>
-    <p class="small muted">Click a week to open its matchup.</p>`;
+    <p class="small muted">Click a week to open its matchup.</p>
+    ${marginsSection(t.margins)}`;
+}
+// Each finished week's margin split into projection + role + luck + K/DST (see the Weekly Review tab).
+function marginsSection(m) {
+  if (!m || !m.weeks.length) return "";
+  return `<h2>Where each margin came from</h2>
+    <p class="intro">Each final margin = the projected margin + <b>role</b> (did your starters get more or less work than ESPN expected, vs. theirs) + <b>luck</b> (what they did with that work) + K and D/ST vs. their projections. ${esc(m.summary)}</p>
+    <div class="card scroll"><table>
+      <tr><th>Week</th><th>Opponent</th><th>What happened</th><th class="num" title="Your starters' projection minus theirs">Projected</th><th class="num" title="Usage vs ESPN, yours minus theirs">Role</th><th class="num" title="What they did with the usage, yours minus theirs">Luck</th><th class="num">K & D/ST</th><th class="num">Final</th></tr>
+      ${m.weeks.map(w => `<tr class="clickable" onclick="S.week=${w.week};S.tab='review';S.revOpen=null;syncControls();route()"><td>${w.week}</td><td>${esc(w.opponent)}</td><td class="small">${esc(w.verdict)}</td>
+        <td class="num">${sgn(w.proj_margin)}</td>${luckTd(w.role)}${luckTd(w.luck)}${luckTd(w.kdst)}<td class="num"><b>${sgn(w.margin)}</b></td></tr>`).join("")}
+      <tr><td colspan="3"><b>Season</b></td>${["proj_margin", "role", "luck", "kdst", "margin"].map(k => `<td class="num"><b>${sgn(m.totals[k])}</b></td>`).join("")}</tr>
+    </table></div>
+    <p class="small muted">Click a week to open its Weekly Review.</p>`;
 }
 // ------------------------------------------------------------------ post-week review
 // actual = ESPN projection + role (expected pts from the usage he got - projection) + luck (actual - expected pts)
@@ -796,11 +828,11 @@ function leagueList(title, sub, xs, key) {
 function renderReview(d) {
   S.reviewData = d;
   const r = d.review, a = r.totals.me, b = r.totals.opp;
-  $("#title").textContent = `Start/Sit · Week ${r.week} review`;
+  setHeader(`Week ${r.week} · ${esc(r.me.name)} vs ${esc(r.opp.name)} · final`);
   const note = d.requested && d.requested !== r.week ? `<p class="small" style="background:var(--hl);padding:6px 10px;border-radius:6px">Week ${d.requested} isn't final yet, so this shows Week ${r.week}. Live weeks join once Tuesday's finals are archived.</p>` : "";
   const won = a.actual > b.actual;
   $("#main").innerHTML = `${note}
-    <p class="secondary small" style="margin-top:10px">Every result = ESPN's projection + <b>role</b> (what the work he actually got is usually worth, minus ESPN's projection) + <b>luck</b> (what he did with that work: efficiency, touchdowns, big plays).
+    <p class="intro">Every result = ESPN's projection + <b>role</b> (what the work he actually got is usually worth, minus ESPN's projection) + <b>luck</b> (what he did with that work: efficiency, touchdowns, big plays).
       “Usage worth” is nflverse's expected fantasy points for each target, carry and pass based on where it happened, rescored for this league. K and D/ST have no usage model. Click a player for the full breakdown.
       <b>Information only:</b> on 2019–2025, neither part predicted the next week better than ESPN.</p>
     <div class="grid2">
@@ -815,7 +847,7 @@ function renderReview(d) {
     <h2>Around the league, Week ${r.week}</h2>
     <div class="grid2">
       ${leagueList("Unlucky with a big role", "Usage worth 10+, scored far less", r.league.unlucky, "luck")}
-      ${leagueList("Lucky", "Usage worth 10+, scored far more", r.league.lucky, "luck")}
+      ${leagueList("Lucky with a big role", "Usage worth 10+, scored far more", r.league.lucky, "luck")}
       ${leagueList("Used more than ESPN expected", "Role above the projection, with likely reasons from snaps, injuries, the betting line vs the final score, team volume and weather", r.league.role_up, "role")}
       ${leagueList("Used less than ESPN expected", "Projected 8+, role below the projection, with likely reasons", r.league.role_down, "role")}
     </div>`;

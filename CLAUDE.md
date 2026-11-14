@@ -136,9 +136,8 @@ Saves the data that disappears if it isn't captured at the time. launchd runs `t
   - a recommendation card with swaps against the current lineup, and urgent flags for starters who can't score
   - a head-to-head with model-vs-ESPN tinting and Stack / Hedge / Double-risk tags (from the estimated correlations)
   - a player panel with a plain-English summary, distribution, what moved the expectation, evidence, stat line, props, and what-if controls
-  - a week-context tab grouped by game
-  - a season replay tab
-  - a review tab for finished weeks (`model/review.py`): each result split into ESPN's projection + **role** (what the usage he got is usually worth, from nflverse expected points, minus ESPN) + **luck** (actual minus that), with rule-based guesses for why usage differed (snap share, next week's injury report, teammates out or leaving early, final score vs. the line, team volume, wind). Information only.
+  - tabs: Weekly Matchup, Weekly Context (grouped by game), Weekly Review, Season Overview (replay record plus each week's margin split into projection, role, luck and K/D/ST)
+  - the Weekly Review tab, for finished weeks (`model/review.py`): each result split into ESPN's projection + **role** (what the usage he got is usually worth, from nflverse expected points, minus ESPN) + **luck** (actual minus that), with rule-based guesses for why usage differed (snap share, next week's injury report, teammates out or leaving early, final score vs. the line, team volume, wind). Information only.
 - Any week (live, or replay of 2026 W1–9 with final results) and any team can be shown.
 
 ### 6. Backtest ✅ and live tracking ⏭️

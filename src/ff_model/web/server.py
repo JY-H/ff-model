@@ -81,7 +81,8 @@ class Handler(BaseHTTPRequestHandler):
                 wk = q.get("week") if q.get("week") in FINISHED else max(FINISHED)
                 return self._json({"requested": q.get("week"), "review": week_review(wk, q.get("team"))})
             if path == "/api/tracking":
-                return self._json(R.season_tracking(q.get("team")))
+                from ..model.review import season_review
+                return self._json(R.season_tracking(q.get("team")) | {"margins": season_review(q.get("team"))})
             self._send(404, b"not found", "text/plain")
         except Exception as e:
             log.error("web error: %s\n%s", e, traceback.format_exc())

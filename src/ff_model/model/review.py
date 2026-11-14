@@ -287,3 +287,22 @@ def _verdict(w: dict) -> str:
         return head + ", about as projected."
     bits = [f"{words[k][0 if w[k] > 0 else 1]} ({w[k]:+.0f})" for k in big]
     return head + ": " + (", ".join(bits[:-1]) + " and " if len(bits) > 1 else "") + bits[-1] + "."
+
+
+def season_review(team_id: int | None = None, weeks=FINISHED) -> dict:
+    """Per finished week: this team's margin split into projection, role, luck and K/DST, with a verdict."""
+    out = []
+    for w in weeks:
+        r = week_review(w, team_id)
+        a, b = r["totals"]["me"], r["totals"]["opp"]
+        out.append({"week": w, "opponent": r["opp"]["name"], "proj_margin": a["proj"] - b["proj"],
+                    "role": a["role"] - b["role"], "luck": a["luck"] - b["luck"], "kdst": a["kdst"] - b["kdst"],
+                    "margin": a["actual"] - b["actual"], "verdict": r["verdict"]})
+    tot = {k: sum(w[k] for w in out) for k in ("proj_margin", "role", "luck", "kdst", "margin")}
+    wins = sum(w["margin"] > 0 for w in out)
+    fav = [w for w in out if w["proj_margin"] > 0]
+    summary = (f"Over {len(out)} weeks: {wins}–{len(out) - wins}, outscoring opponents by {tot['margin']:.0f}. "
+               f"{tot['proj_margin']:.0f} of that was already in the projections (stronger lineups on paper); "
+               f"projected favourite {len(fav)} times, won {sum(w['margin'] > 0 for w in fav)}. "
+               f"Usage vs ESPN {tot['role']:+.0f}, luck {tot['luck']:+.0f}, K and D/ST {tot['kdst']:+.0f}.")
+    return {"weeks": out, "totals": tot, "summary": summary}
