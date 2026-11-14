@@ -17,7 +17,7 @@ import sqlite3
 import polars as pl
 
 from ..archive.context import espn_abbr
-from ..config import DB_PATH, SEASON
+from ..config import DB_PATH, LEAGUE_ID, SEASON
 from ..research.factor_tests import _add_line_injuries, _add_return_from_absence
 from ..research.line_injuries import starters_out
 from ..research.nflverse import load
@@ -62,9 +62,9 @@ def build_inputs(snapshot_id: int | None = None) -> pl.DataFrame:
     abbr = espn_abbr(con)
 
     ps = _q(con, "SELECT player_id, full_name AS name, position_id, pro_team_id, injury_status, on_team_id,"
-                 " proj_points AS proj, proj_stats_json FROM player_snapshots WHERE snapshot_id=?"
+                 " proj_points AS proj, proj_stats_json FROM player_snapshots WHERE league_id=? AND snapshot_id=?"
                  " AND (proj_points > 0 OR on_team_id > 0)",  # rostered players always (locked/late swap)
-            (snapshot_id,))
+            (LEAGUE_ID, snapshot_id))
     stats = [json.loads(s or "{}") for s in ps["proj_stats_json"]]
     df = ps.with_columns(
         *[pl.Series(v, [float(st.get(k, 0.0)) for st in stats]) for k, v in LINE.items()],

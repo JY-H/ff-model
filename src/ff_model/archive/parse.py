@@ -24,10 +24,10 @@ def parse_snapshot(con, snapshot_id: int, week: int) -> None:
     for row in rows:
         body = load_raw(row)
         if row["kind"] == "players":
-            _players(con, snapshot_id, week, body)
+            _players(con, row["league_id"], snapshot_id, week, body)
         elif row["kind"] in ("league", "prev_week"):
             period = json.loads(row["params_json"])["scoringPeriodId"]
-            _league(con, snapshot_id, period, body)
+            _league(con, row["league_id"], snapshot_id, period, body)
         elif row["kind"] == "odds":
             _odds(con, snapshot_id, body)
         elif row["kind"] == "props":
@@ -39,34 +39,34 @@ def parse_snapshot(con, snapshot_id: int, week: int) -> None:
     con.commit()
 
 
-def _players(con, sid, week, body):
+def _players(con, league_id, sid, week, body):
     for w in body.get("players", []):
         p = w.get("player", {})
         proj = _weekly(p.get("stats"), 1, week)
         con.execute(
-            "INSERT OR REPLACE INTO player_snapshots VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (sid, w["id"], p.get("fullName"), p.get("defaultPositionId"), p.get("proTeamId"),
+            "INSERT OR REPLACE INTO player_snapshots VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (league_id, sid, w["id"], p.get("fullName"), p.get("defaultPositionId"), p.get("proTeamId"),
              w.get("status"), w.get("onTeamId"), p.get("injuryStatus"), int(bool(p.get("injured"))),
              int(bool(w.get("lineupLocked"))), (p.get("ownership") or {}).get("percentOwned"),
              proj.get("appliedTotal") if proj else None,
              json.dumps(proj.get("stats")) if proj else None))
 
 
-def _league(con, sid, period, body):
+def _league(con, league_id, sid, period, body):
     for t in body.get("teams", []):
         for e in (t.get("roster") or {}).get("entries", []):
             stats = ((e.get("playerPoolEntry") or {}).get("player") or {}).get("stats")
             act, proj = _weekly(stats, 0, period), _weekly(stats, 1, period)
-            con.execute("INSERT OR REPLACE INTO lineups VALUES (?,?,?,?,?,?,?)",
-                        (sid, period, t["id"], e["playerId"], e.get("lineupSlotId"),
+            con.execute("INSERT OR REPLACE INTO lineups VALUES (?,?,?,?,?,?,?,?)",
+                        (league_id, sid, period, t["id"], e["playerId"], e.get("lineupSlotId"),
                          act.get("appliedTotal") if act else None,
                          proj.get("appliedTotal") if proj else None))
     for m in body.get("schedule", []):
         if m.get("matchupPeriodId") != period:
             continue
         home, away = m.get("home") or {}, m.get("away") or {}
-        con.execute("INSERT OR REPLACE INTO matchups VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (sid, period, m["id"], home.get("teamId"), away.get("teamId"),
+        con.execute("INSERT OR REPLACE INTO matchups VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (league_id, sid, period, m["id"], home.get("teamId"), away.get("teamId"),
                      home.get("totalPoints"), away.get("totalPoints"),
                      home.get("totalPointsLive"), away.get("totalPointsLive"),
                      home.get("totalProjectedPointsLive"), away.get("totalProjectedPointsLive"),

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import polars as pl
 
+from ..config import LEAGUE_ID
 from ..db import connect, load_raw
 
 DST_SLOT = "16"
@@ -44,8 +45,8 @@ YA_TIERS = {128: (-999, 99), 129: (100, 199), 130: (200, 299), 132: (350, 399),
 def league_rules(con=None) -> dict[int, tuple[float, float]]:
     """stat id -> (points for players, points for D/ST)."""
     con = con or connect()
-    row = con.execute("SELECT * FROM raw_responses WHERE kind='settings' AND status_code=200"
-                      " ORDER BY id DESC LIMIT 1").fetchone()
+    row = con.execute("SELECT * FROM raw_responses WHERE kind='settings' AND status_code=200 AND league_id=?"
+                      " ORDER BY id DESC LIMIT 1", (LEAGUE_ID,)).fetchone()
     items = load_raw(row)["settings"]["scoringSettings"]["scoringItems"]
     return {it["statId"]: (it["points"], (it.get("pointsOverrides") or {}).get(DST_SLOT, it["points"]))
             for it in items}

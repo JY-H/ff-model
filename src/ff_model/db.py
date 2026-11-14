@@ -1,5 +1,10 @@
 """SQLite storage. Raw responses are the source of truth; other tables are
-derived from them by parse.py and can be rebuilt."""
+derived from them by parse.py and can be rebuilt.
+
+League-specific data carries league_id (ESPN league): raw responses from league endpoints,
+player_snapshots (league-scored, with ownership), lineups and matchups. Shared data (odds,
+props, weather, injury reports, the NFL schedule) has league_id NULL and serves every league.
+Readers filter on config.LEAGUE_ID."""
 from __future__ import annotations
 
 import gzip
@@ -8,7 +13,11 @@ import json
 import sqlite3
 from datetime import datetime, timezone
 
-from .config import DATA_DIR, DB_PATH
+from .config import DATA_DIR, DB_PATH, LEAGUE_ID
+
+# ESPN responses from league endpoints (settings, rosters, the league-scored player pool, transactions)
+LEAGUE_KINDS = ("settings", "league", "prev_week", "players", "transactions", "trades")
+LEAGUE_TABLES = ("player_snapshots", "lineups", "matchups")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS snapshots (
@@ -33,11 +42,13 @@ CREATE TABLE IF NOT EXISTS raw_responses (
     fetched_at TEXT NOT NULL,
     status_code INTEGER,
     sha256 TEXT,
-    body_gz BLOB
+    body_gz BLOB,
+    league_id INTEGER           -- ESPN league for league endpoints; NULL for shared data
 );
 CREATE INDEX IF NOT EXISTS raw_snapshot ON raw_responses(snapshot_id, kind);
 
 CREATE TABLE IF NOT EXISTS player_snapshots (
+    league_id INTEGER NOT NULL,
     snapshot_id INTEGER NOT NULL,
     player_id INTEGER NOT NULL,
     full_name TEXT,
@@ -51,10 +62,11 @@ CREATE TABLE IF NOT EXISTS player_snapshots (
     percent_owned REAL,
     proj_points REAL,           -- league-scored weekly projection (statSourceId=1)
     proj_stats_json TEXT,
-    PRIMARY KEY (snapshot_id, player_id)
+    PRIMARY KEY (league_id, snapshot_id, player_id)
 );
 
 CREATE TABLE IF NOT EXISTS lineups (
+    league_id INTEGER NOT NULL,
     snapshot_id INTEGER NOT NULL,
     scoring_period INTEGER NOT NULL,
     team_id INTEGER NOT NULL,
@@ -62,10 +74,11 @@ CREATE TABLE IF NOT EXISTS lineups (
     lineup_slot_id INTEGER,
     actual_points REAL,
     proj_points REAL,
-    PRIMARY KEY (snapshot_id, scoring_period, team_id, player_id)
+    PRIMARY KEY (league_id, snapshot_id, scoring_period, team_id, player_id)
 );
 
 CREATE TABLE IF NOT EXISTS matchups (
+    league_id INTEGER NOT NULL,
     snapshot_id INTEGER NOT NULL,
     matchup_period INTEGER NOT NULL,
     matchup_id INTEGER NOT NULL,
@@ -79,7 +92,7 @@ CREATE TABLE IF NOT EXISTS matchups (
     away_proj_live REAL,
     home_win_prob REAL,         -- ESPN's own win probability: a baseline to beat
     away_win_prob REAL,
-    PRIMARY KEY (snapshot_id, matchup_id)
+    PRIMARY KEY (league_id, snapshot_id, matchup_id)
 );
 
 CREATE TABLE IF NOT EXISTS odds_lines (
@@ -180,6 +193,7 @@ def connect() -> sqlite3.Connection:
 
 
 def _migrate(con) -> None:
+    _migrate_league_id(con)
     cols = {r["name"] for r in con.execute("PRAGMA table_info(odds_ledger)")}
     if "kind" not in cols:
         con.execute("ALTER TABLE odds_ledger ADD COLUMN kind TEXT")
@@ -189,11 +203,12 @@ def _migrate(con) -> None:
 
 def save_raw(con, snapshot_id, source, kind, url, params, status_code, body) -> int:
     data = json.dumps(body, separators=(",", ":")).encode() if body is not None else b""
+    league = LEAGUE_ID if source == "espn" and kind in LEAGUE_KINDS else None
     cur = con.execute(
         "INSERT INTO raw_responses (snapshot_id, source, kind, url, params_json, fetched_at,"
-        " status_code, sha256, body_gz) VALUES (?,?,?,?,?,?,?,?,?)",
+        " status_code, sha256, body_gz, league_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
         (snapshot_id, source, kind, url, json.dumps(params, sort_keys=True), iso(utcnow()),
-         status_code, hashlib.sha256(data).hexdigest(), gzip.compress(data)),
+         status_code, hashlib.sha256(data).hexdigest(), gzip.compress(data), league),
     )
     con.commit()
     return cur.lastrowid
@@ -202,3 +217,34 @@ def save_raw(con, snapshot_id, source, kind, url, params, status_code, body) -> 
 def load_raw(row) -> object:
     data = gzip.decompress(row["body_gz"])
     return json.loads(data) if data else None
+
+
+def _migrate_league_id(con) -> None:
+    """Add league_id to databases created before it existed. Every earlier row is this league's.
+
+    One transaction under a write lock: concurrent connects (the launchd tick) wait, then see it done.
+    """
+    def has(t):
+        return "league_id" in {r["name"] for r in con.execute(f"PRAGMA table_info({t})")}
+    if has("raw_responses") and all(has(t) for t in LEAGUE_TABLES):
+        return
+    con.execute("BEGIN IMMEDIATE")
+    try:
+        if not has("raw_responses"):
+            con.execute("ALTER TABLE raw_responses ADD COLUMN league_id INTEGER")
+            con.execute(f"UPDATE raw_responses SET league_id=? WHERE source='espn' AND kind IN ({','.join('?' * len(LEAGUE_KINDS))})",
+                        (LEAGUE_ID, *LEAGUE_KINDS))
+        for t in LEAGUE_TABLES:  # league_id joins the primary key: rebuild the table and copy rows over
+            if has(t):
+                continue
+            cols = [r["name"] for r in con.execute(f"PRAGMA table_info({t})")]
+            con.execute(f"ALTER TABLE {t} RENAME TO {t}_old")
+            create = SCHEMA[SCHEMA.index(f"CREATE TABLE IF NOT EXISTS {t} ("):]
+            con.execute(create[:create.index(");") + 2])
+            con.execute(f"INSERT INTO {t} (league_id, {', '.join(cols)}) SELECT ?, {', '.join(cols)} FROM {t}_old", (LEAGUE_ID,))
+            con.execute(f"DROP TABLE {t}_old")
+        con.execute("CREATE INDEX IF NOT EXISTS raw_league ON raw_responses(league_id, kind)")
+        con.execute("COMMIT")
+    except Exception:
+        con.execute("ROLLBACK")
+        raise

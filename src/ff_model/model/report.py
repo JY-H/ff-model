@@ -17,7 +17,7 @@ from functools import lru_cache
 import numpy as np
 import polars as pl
 
-from ..config import DATA_DIR, DB_PATH, MY_TEAM_ID, SEASON
+from ..config import DATA_DIR, DB_PATH, LEAGUE_ID, MY_TEAM_ID, SEASON
 from ..db import load_raw
 from ..research.line_injuries import starters_out
 from . import correlation as C
@@ -50,7 +50,8 @@ def _live_weeks(con) -> dict[int, list[dict]]:
     out: dict[int, list[dict]] = {}
     for r in con.execute("SELECT s.id, s.week, s.slot_key, s.started_at FROM snapshots s WHERE s.status IN ('ok','partial')"
                          " AND (s.slot_key IS NULL OR s.slot_key NOT LIKE '%backfill')"
-                         " AND EXISTS (SELECT 1 FROM player_snapshots p WHERE p.snapshot_id = s.id) ORDER BY s.id DESC"):
+                         " AND EXISTS (SELECT 1 FROM player_snapshots p WHERE p.league_id = ? AND p.snapshot_id = s.id)"
+                         " ORDER BY s.id DESC", (LEAGUE_ID,)):
         out.setdefault(r["week"], []).append(dict(r))
     return out
 
@@ -58,7 +59,8 @@ def _live_weeks(con) -> dict[int, list[dict]]:
 def weeks_available() -> list[dict]:
     con = _con()
     live = _live_weeks(con)
-    replay = {r[0] for r in con.execute("SELECT DISTINCT scoring_period FROM lineups WHERE actual_points IS NOT NULL")}
+    replay = {r[0] for r in con.execute("SELECT DISTINCT scoring_period FROM lineups WHERE league_id=? AND actual_points IS NOT NULL",
+                                        (LEAGUE_ID,))}
     hist = {int(p.stem[1:3]) for p in (DATA_DIR / "espn_history" / str(SEASON)).glob("w*-p0.json.gz")}
     weeks = []
     for w in sorted((replay & hist) | set(live)):
@@ -68,8 +70,9 @@ def weeks_available() -> list[dict]:
 
 def team_names(con=None, sid: int | None = None) -> dict[int, str]:
     con = con or _con()
-    row = con.execute("SELECT * FROM raw_responses WHERE kind IN ('league','prev_week') AND status_code=200"
-                      + (" AND snapshot_id<=?" if sid else "") + " ORDER BY id DESC LIMIT 1", (sid,) if sid else ()).fetchone()
+    row = con.execute("SELECT * FROM raw_responses WHERE kind IN ('league','prev_week') AND status_code=200 AND league_id=?"
+                      + (" AND snapshot_id<=?" if sid else "") + " ORDER BY id DESC LIMIT 1",
+                      (LEAGUE_ID, sid) if sid else (LEAGUE_ID,)).fetchone()
     return {t["id"]: (t.get("name") or f"Team {t['id']}").strip() for t in load_raw(row)["teams"]}
 
 
@@ -101,15 +104,15 @@ def _inputs(week: int | None, snapshot_id: int | None):
         pool = build_inputs(sid)
         week = int(pool["week"][0])
         taken = datetime.fromisoformat(con.execute("SELECT started_at FROM snapshots WHERE id=?", (sid,)).fetchone()[0])
-        rows = con.execute("SELECT team_id, player_id, lineup_slot_id, actual_points FROM lineups WHERE snapshot_id=?"
-                           " AND scoring_period=?", (sid, week)).fetchall()
-        mus = con.execute("SELECT home_team_id, away_team_id FROM matchups WHERE snapshot_id=? AND matchup_period=?",
-                          (sid, week)).fetchall()
+        rows = con.execute("SELECT team_id, player_id, lineup_slot_id, actual_points FROM lineups WHERE league_id=?"
+                           " AND snapshot_id=? AND scoring_period=?", (LEAGUE_ID, sid, week)).fetchall()
+        mus = con.execute("SELECT home_team_id, away_team_id FROM matchups WHERE league_id=? AND snapshot_id=? AND matchup_period=?",
+                          (LEAGUE_ID, sid, week)).fetchall()
         opp = {h: a for h, a in mus} | {a: h for h, a in mus}
         ros = pl.DataFrame([dict(team_id=r[0], player_id=r[1], slot=r[2], actual=r[3], final=None,
                                  opp_team_id=opp.get(r[0])) for r in rows])
         stat = {r[0]: json.loads(r[1] or "{}") for r in con.execute(
-            "SELECT player_id, proj_stats_json FROM player_snapshots WHERE snapshot_id=?", (sid,))}
+            "SELECT player_id, proj_stats_json FROM player_snapshots WHERE league_id=? AND snapshot_id=?", (LEAGUE_ID, sid))}
         return "live", sid, week, taken, C.assign_roles(pool), ros, stat
     from .backtest import _decision_time, _final_rosters
     f = _replay_frame().filter(pl.col("week") == week)
@@ -339,25 +342,25 @@ def _history(con, ids: list[int], week: int, upto_sid: int | None) -> dict[int, 
     week_rows: dict[int, list[dict]] = {}
     if upto_sid is not None and ids:
         q = (f"SELECT p.player_id, s.id, s.started_at, s.slot_key, p.proj_points, p.injury_status FROM player_snapshots p"
-             f" JOIN snapshots s ON s.id = p.snapshot_id WHERE s.week = ? AND s.id <= ?"
+             f" JOIN snapshots s ON s.id = p.snapshot_id WHERE p.league_id = ? AND s.week = ? AND s.id <= ?"
              f" AND (s.slot_key IS NULL OR s.slot_key NOT LIKE '%backfill')"
              f" AND p.player_id IN ({','.join('?' * len(ids))}) ORDER BY s.id")
         team_of = {}
-        for pid, sid, at, slot, proj, st in con.execute(q, (week, upto_sid, *ids)):
+        for pid, sid, at, slot, proj, st in con.execute(q, (LEAGUE_ID, week, upto_sid, *ids)):
             week_rows.setdefault(pid, []).append({"snapshot": sid, "at": at, "slot": slot, "proj": proj, "status": st})
-        for pid, team in con.execute(f"SELECT player_id, MAX(pro_team_id) FROM player_snapshots WHERE snapshot_id <= ?"
-                                     f" AND player_id IN ({','.join('?' * len(ids))}) GROUP BY player_id", (upto_sid, *ids)):
+        for pid, team in con.execute(f"SELECT player_id, MAX(pro_team_id) FROM player_snapshots WHERE league_id = ? AND snapshot_id <= ?"
+                                     f" AND player_id IN ({','.join('?' * len(ids))}) GROUP BY player_id", (LEAGUE_ID, upto_sid, *ids)):
             team_of[pid] = team
         # what changed on each NFL team between consecutive snapshots: status changes and projections zeroed
         teams = sorted({t for t in team_of.values() if t is not None})
         notes: dict[tuple, list[str]] = {}
         if teams:
             q2 = (f"SELECT p.pro_team_id, s.id, p.player_id, p.full_name, p.injury_status, p.proj_points FROM player_snapshots p"
-                  f" JOIN snapshots s ON s.id = p.snapshot_id WHERE s.week = ? AND s.id <= ?"
+                  f" JOIN snapshots s ON s.id = p.snapshot_id WHERE p.league_id = ? AND s.week = ? AND s.id <= ?"
                   f" AND (s.slot_key IS NULL OR s.slot_key NOT LIKE '%backfill')"
                   f" AND p.pro_team_id IN ({','.join('?' * len(teams))}) ORDER BY s.id")
             prev: dict[int, tuple] = {}
-            for team, sid, pid, name, st, proj in con.execute(q2, (week, upto_sid, *teams)):
+            for team, sid, pid, name, st, proj in con.execute(q2, (LEAGUE_ID, week, upto_sid, *teams)):
                 before = prev.get(pid)
                 if before and (before[0] != st or (before[1] or 0) >= 3 > (proj or 0) or (proj or 0) >= 3 > (before[1] or 0)):
                     if max(before[1] or 0, proj or 0) >= 3:  # skip deep reserves
@@ -369,17 +372,19 @@ def _history(con, ids: list[int], week: int, upto_sid: int | None) -> dict[int, 
         for pid, rows_ in week_rows.items():
             for h in rows_:
                 h["team_changes"] = [n for n in notes.get((team_of.get(pid), h["snapshot"]), []) if not n.startswith(
-                    (con.execute("SELECT full_name FROM player_snapshots WHERE player_id=? LIMIT 1", (pid,)).fetchone() or [""])[0] + ":")]
+                    (con.execute("SELECT full_name FROM player_snapshots WHERE league_id=? AND player_id=? LIMIT 1",
+                                 (LEAGUE_ID, pid)).fetchone() or [""])[0] + ":")]
     season = _season_projection_history()
     live = {}
     # live weeks before this one: ESPN's last projection of the week, and the final score if archived
     for w, sid in con.execute("SELECT week, MAX(id) FROM snapshots WHERE week < ? AND status IN ('ok','partial')"
                               " AND (slot_key IS NULL OR slot_key NOT LIKE '%backfill')"
-                              " AND EXISTS (SELECT 1 FROM player_snapshots p WHERE p.snapshot_id = snapshots.id)"
-                              " GROUP BY week", (week,)).fetchall():
-        fin = {r[0]: r[1] for r in con.execute("SELECT player_id, MAX(actual_points) FROM lineups WHERE scoring_period=?"
-                                               " GROUP BY player_id", (w,))}
-        for pid, proj in con.execute("SELECT player_id, proj_points FROM player_snapshots WHERE snapshot_id=?", (sid,)):
+                              " AND EXISTS (SELECT 1 FROM player_snapshots p WHERE p.league_id = ? AND p.snapshot_id = snapshots.id)"
+                              " GROUP BY week", (week, LEAGUE_ID)).fetchall():
+        fin = {r[0]: r[1] for r in con.execute("SELECT player_id, MAX(actual_points) FROM lineups WHERE league_id=? AND scoring_period=?"
+                                               " GROUP BY player_id", (LEAGUE_ID, w))}
+        for pid, proj in con.execute("SELECT player_id, proj_points FROM player_snapshots WHERE league_id=? AND snapshot_id=?",
+                                     (LEAGUE_ID, sid)):
             live.setdefault(pid, []).append({"week": w, "proj": proj, "actual": fin.get(pid), "played": fin.get(pid) is not None})
     out = {}
     for pid in ids:
@@ -544,8 +549,8 @@ def build_report(week: int | None = None, team_id: int | None = None, snapshot_i
 
     espn_wp = None
     if sid:
-        m = con.execute("SELECT * FROM matchups WHERE snapshot_id=? AND matchup_period=? AND ? IN (home_team_id, away_team_id)",
-                        (sid, week, me_id)).fetchone()
+        m = con.execute("SELECT * FROM matchups WHERE league_id=? AND snapshot_id=? AND matchup_period=?"
+                        " AND ? IN (home_team_id, away_team_id)", (LEAGUE_ID, sid, week, me_id)).fetchone()
         if m:
             espn_wp = m["home_win_prob"] if m["home_team_id"] == me_id else m["away_win_prob"]
     names = team_names(con, sid)
@@ -647,9 +652,11 @@ def _roster_names(con, source, sid, week) -> dict[int, tuple]:
     """Names/positions for rostered players without projections (byes, IR), from ESPN's roster data."""
     pos_map = {1: "QB", 2: "RB", 3: "WR", 4: "TE", 5: "K", 16: "D/ST"}
     if source == "live":
-        rows = con.execute("SELECT * FROM raw_responses WHERE snapshot_id=? AND kind='league' AND status_code=200", (sid,)).fetchall()
+        rows = con.execute("SELECT * FROM raw_responses WHERE snapshot_id=? AND kind='league' AND status_code=200 AND league_id=?",
+                           (sid, LEAGUE_ID)).fetchall()
     else:
-        rows = [r for r in con.execute("SELECT * FROM raw_responses WHERE kind='prev_week' AND status_code=200")
+        rows = [r for r in con.execute("SELECT * FROM raw_responses WHERE kind='prev_week' AND status_code=200 AND league_id=?",
+                                       (LEAGUE_ID,))
                 if json.loads(r["params_json"]).get("scoringPeriodId") == week]
     out = {}
     for row in rows[-1:]:

@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 import polars as pl
 import pytest
 
+from ff_model.config import LEAGUE_ID
 from ff_model.research.nflverse import NFLVERSE_DIR
 from ff_model.sources import stadiums, weather
 
@@ -79,5 +80,6 @@ def test_build_inputs_keeps_every_rostered_player():
     df = build_inputs()
     sid = int(df["snapshot_id"][0])
     con = sqlite3.connect(DB_PATH)
-    rostered = {r[0] for r in con.execute("SELECT player_id FROM player_snapshots WHERE snapshot_id=? AND on_team_id > 0", (sid,))}
+    rostered = {r[0] for r in con.execute("SELECT player_id FROM player_snapshots WHERE league_id=? AND snapshot_id=? AND on_team_id > 0",
+                                                          (LEAGUE_ID, sid))}
     assert rostered <= set(df["player_id"].to_list())

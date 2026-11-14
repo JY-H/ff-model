@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 
 import polars as pl
 
-from ..config import DB_PATH, MY_TEAM_ID, SEASON
+from ..config import DB_PATH, LEAGUE_ID, MY_TEAM_ID, SEASON
 from ..db import load_raw
 from .backtest import _final_rosters
 from .optimize import BENCH, IR, _slot_counts
@@ -48,14 +48,15 @@ def executed_trades(con=None) -> list[dict]:
     """
     con = con or _con()
     drops: dict[frozenset, list] = {}
-    for r in con.execute("SELECT * FROM raw_responses WHERE kind='transactions' AND status_code=200"):
+    for r in con.execute("SELECT * FROM raw_responses WHERE kind='transactions' AND status_code=200 AND league_id=?", (LEAGUE_ID,)):
         for t in load_raw(r).get("transactions", []):
             if t.get("type") == "TRADE_ACCEPT" and t.get("status") == "EXECUTED" and t.get("items"):
                 key = frozenset((i["playerId"], i["fromTeamId"], i["toTeamId"]) for i in t["items"] if i["type"] == "TRADE")
                 drops[key] = [{"type": "DROP", "player_id": i["playerId"], "from": i["fromTeamId"], "to": None}
                               for i in t["items"] if i["type"] == "DROP"]
     seen: dict[str, dict] = {}
-    for r in con.execute("SELECT * FROM raw_responses WHERE kind='trades' AND status_code=200 ORDER BY id"):
+    for r in con.execute("SELECT * FROM raw_responses WHERE kind='trades' AND status_code=200 AND league_id=? ORDER BY id",
+                         (LEAGUE_ID,)):
         for t in load_raw(r).get("topics", []):
             ms = [m for m in t.get("messages", []) if m.get("messageTypeId") == 244]
             if ms and not t.get("isDeleted"):
@@ -121,9 +122,10 @@ def analyze(team_id: int | None = None) -> dict:
         return sum(pts(p["id"], w) for p in best), {p["id"] for p in best}
 
     # this week's ESPN projection (latest live snapshot), to show how each side looks now
-    sid = con.execute("SELECT MAX(snapshot_id) FROM player_snapshots").fetchone()[0]
+    sid = con.execute("SELECT MAX(snapshot_id) FROM player_snapshots WHERE league_id=?", (LEAGUE_ID,)).fetchone()[0]
     now_week = con.execute("SELECT week FROM snapshots WHERE id=?", (sid,)).fetchone()[0] if sid else None
-    now_proj = {r[0]: r[1] for r in con.execute("SELECT player_id, proj_points FROM player_snapshots WHERE snapshot_id=?", (sid,))}
+    now_proj = {r[0]: r[1] for r in con.execute("SELECT player_id, proj_points FROM player_snapshots WHERE league_id=? AND snapshot_id=?",
+                                                (LEAGUE_ID, sid))}
 
     trades = executed_trades(con)
 

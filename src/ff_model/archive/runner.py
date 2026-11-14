@@ -6,7 +6,7 @@ import logging
 import traceback
 from datetime import datetime, timedelta
 
-from ..config import ET, LOG_DIR, SEASON
+from ..config import ET, LEAGUE_ID, LOG_DIR, SEASON
 from ..db import connect, iso, save_raw, utcnow
 from ..sources import espn, odds
 from .context import archive_context
@@ -60,7 +60,7 @@ def snapshot(con, week: int, slot_key: str | None = None, with_odds: bool = Fals
     log.info("snapshot %d start: week %d slot %s", sid, week, slot_key or "manual")
     kinds = ["players", "league"] + (["prev_week"] if prev_week and week > 1 else [])
     if settings or not con.execute("SELECT 1 FROM raw_responses WHERE kind='settings'"
-                                   " AND status_code=200 LIMIT 1").fetchone():
+                                   " AND status_code=200 AND league_id=? LIMIT 1", (LEAGUE_ID,)).fetchone():
         kinds.insert(0, "settings")
     errors = []
     for kind in kinds:

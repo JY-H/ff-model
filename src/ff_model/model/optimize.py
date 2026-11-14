@@ -18,7 +18,7 @@ from datetime import datetime
 import numpy as np
 import polars as pl
 
-from ..config import DB_PATH, MY_TEAM_ID
+from ..config import DB_PATH, LEAGUE_ID, MY_TEAM_ID
 from ..db import load_raw
 from . import correlation as C
 from .live import build_inputs
@@ -48,17 +48,18 @@ class Recommendation:
 
 
 def _slot_counts(con) -> dict[str, int]:
-    row = con.execute("SELECT * FROM raw_responses WHERE kind='settings' AND status_code=200 ORDER BY id DESC LIMIT 1").fetchone()
+    row = con.execute("SELECT * FROM raw_responses WHERE kind='settings' AND status_code=200 AND league_id=?"
+                      " ORDER BY id DESC LIMIT 1", (LEAGUE_ID,)).fetchone()
     counts = load_raw(row)["settings"]["rosterSettings"]["lineupSlotCounts"]
     return {SLOT[int(k)]: v for k, v in counts.items() if int(k) in SLOT and v}
 
 
 def _rosters(con, sid: int, week: int):
-    m = con.execute("SELECT home_team_id, away_team_id FROM matchups WHERE snapshot_id=? AND matchup_period=?"
-                    " AND ? IN (home_team_id, away_team_id)", (sid, week, MY_TEAM_ID)).fetchone()
+    m = con.execute("SELECT home_team_id, away_team_id FROM matchups WHERE league_id=? AND snapshot_id=? AND matchup_period=?"
+                    " AND ? IN (home_team_id, away_team_id)", (LEAGUE_ID, sid, week, MY_TEAM_ID)).fetchone()
     opp = m[1] if m[0] == MY_TEAM_ID else m[0]
-    rows = con.execute("SELECT team_id, player_id, lineup_slot_id, actual_points FROM lineups"
-                       " WHERE snapshot_id=? AND scoring_period=? AND team_id IN (?, ?)", (sid, week, MY_TEAM_ID, opp)).fetchall()
+    rows = con.execute("SELECT team_id, player_id, lineup_slot_id, actual_points FROM lineups WHERE league_id=?"
+                       " AND snapshot_id=? AND scoring_period=? AND team_id IN (?, ?)", (LEAGUE_ID, sid, week, MY_TEAM_ID, opp)).fetchall()
     df = pl.DataFrame([dict(team_id=r[0], player_id=r[1], slot=r[2], actual=r[3]) for r in rows])
     return opp, df
 

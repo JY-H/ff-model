@@ -18,7 +18,7 @@ from datetime import datetime, time, timezone
 
 import polars as pl
 
-from ..config import DB_PATH, ET, SEASON
+from ..config import DB_PATH, ET, LEAGUE_ID, SEASON
 from ..research.factor_tests import factor_frame
 from . import correlation as C
 from .marginals import MODEL_PATH, Marginals, espn_context_quantiles
@@ -48,12 +48,12 @@ def _team_kickoffs(con) -> pl.DataFrame:
 
 def _final_rosters(con, week: int) -> pl.DataFrame:
     """Locked lineups and final points for every team (latest archive of that scoring period)."""
-    sid = con.execute("SELECT MAX(snapshot_id) FROM lineups WHERE scoring_period=? AND actual_points IS NOT NULL",
-                      (week,)).fetchone()[0]
-    rows = con.execute("SELECT team_id, player_id, lineup_slot_id, actual_points FROM lineups WHERE snapshot_id=?"
-                       " AND scoring_period=?", (sid, week)).fetchall()
-    mus = con.execute("SELECT home_team_id, away_team_id FROM matchups WHERE snapshot_id=? AND matchup_period=?",
-                      (sid, week)).fetchall()
+    sid = con.execute("SELECT MAX(snapshot_id) FROM lineups WHERE league_id=? AND scoring_period=? AND actual_points IS NOT NULL",
+                      (LEAGUE_ID, week)).fetchone()[0]
+    rows = con.execute("SELECT team_id, player_id, lineup_slot_id, actual_points FROM lineups WHERE league_id=? AND snapshot_id=?"
+                       " AND scoring_period=?", (LEAGUE_ID, sid, week)).fetchall()
+    mus = con.execute("SELECT home_team_id, away_team_id FROM matchups WHERE league_id=? AND snapshot_id=? AND matchup_period=?",
+                      (LEAGUE_ID, sid, week)).fetchall()
     opp = {}
     for h, a in mus:
         opp[h], opp[a] = a, h

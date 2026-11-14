@@ -6,7 +6,7 @@ import sqlite3
 import polars as pl
 import pytest
 
-from ff_model.config import DB_PATH
+from ff_model.config import DB_PATH, LEAGUE_ID
 from ff_model.research import scoring
 
 RULES = {3: (0.04, 0.04), 4: (4.0, 4.0), 53: (1.0, 1.0), 85: (-1.0, -1.0), 99: (0.0, 1.0),
@@ -40,7 +40,7 @@ def test_dst_tiers_sack_sign_and_non_offense_points():
 def test_rescoring_espn_projections_matches_espn():
     con = sqlite3.connect(DB_PATH)
     rows = con.execute("SELECT position_id, proj_points, proj_stats_json FROM player_snapshots"
-                       " WHERE proj_stats_json IS NOT NULL LIMIT 2000").fetchall()
+                       " WHERE league_id=? AND proj_stats_json IS NOT NULL LIMIT 2000", (LEAGUE_ID,)).fetchall()
     if not rows:
         pytest.skip("no projections archived")
     df = pl.DataFrame([{"position_id": r[0], "espn": r[1], "stats": json.loads(r[2])} for r in rows],

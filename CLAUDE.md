@@ -188,7 +188,7 @@ src/ff_model/
 
 | Path | Contents | Replaceable? |
 |---|---|---|
-| `archive.db` | live snapshots. `raw_responses` (gzipped JSON) is the source of truth; other tables come from `parse.py` | **No** |
+| `archive.db` | live snapshots. `raw_responses` (gzipped JSON) is the source of truth; other tables come from `parse.py`. League data (ESPN league endpoints, `player_snapshots`, `lineups`, `matchups`) carries `league_id`, part of the key; shared data (odds, props, weather, injury reports, NFL schedule) has none. Readers filter on `ESPN_LEAGUE_ID` | **No** |
 | `espn_history/` | raw ESPN projection responses + `projections.parquet` | Only while ESPN keeps serving them |
 | `nflverse/` | Parquet per dataset and season | Yes, re-download in ~20 s |
 | `models/` | fitted `marginals.json`, `correlation.json` | Yes, refit (~5 min) |
