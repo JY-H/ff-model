@@ -49,6 +49,7 @@ def main(argv=None) -> None:
     eh.add_argument("--weeks", type=int, nargs="*", help="only these weeks (e.g. completed weeks this season)")
     sub.add_parser("fit-marginals", help="fit player distributions on 2019-2025 and save")
     sub.add_parser("fit-correlation", help="estimate role-pair correlations on 2019-2025 and save")
+    sub.add_parser("screen-factors", help="regenerate the factor evidence table used by the web page")
     bs = sub.add_parser("backtest-synth", help="walk-forward synthetic-league backtest, 2022-2025 (long)")
     bs.add_argument("--leagues", type=int, default=10)
     bs.add_argument("--draws", type=int, default=4000)
@@ -87,6 +88,10 @@ def main(argv=None) -> None:
         from .model.correlation import CORR_PATH, fit_live
         fit_live()
         print(f"saved {CORR_PATH}")
+        return
+    if args.cmd == "screen-factors":
+        from .research.factor_tests import run_screen
+        print(f"{run_screen().height} rows")
         return
     if args.cmd == "backtest-synth":
         from .model.backtest_synth import run as run_synth

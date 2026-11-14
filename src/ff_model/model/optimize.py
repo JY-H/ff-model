@@ -139,18 +139,22 @@ class Decision:
 
 
 def decide(me: pl.DataFrame, opp_start: pl.DataFrame, q_of: dict[int, np.ndarray], counts: dict[str, int],
-           corr: dict, n: int = 20000, seed: int = 7) -> Decision:
+           corr: dict, n: int = 20000, seed: int = 7, force_in=(), force_out=()) -> Decision:
     """Core choice, independent of where the inputs came from.
 
     me: my roster rows with player_id, pos, proj, slot, locked, unavailable, actual, game, role, team, opp.
     opp_start: opponent starters with the same columns. q_of: player_id -> quantile curve.
     """
     my_locked = me.filter(pl.col("locked") & ~pl.col("slot").is_in([BENCH, IR]))
-    free = me.filter(~pl.col("locked") & ~pl.col("unavailable"))
+    free = me.filter(~pl.col("locked") & ~pl.col("unavailable") & ~pl.col("player_id").is_in(list(force_out)))
     open_slots = dict(counts)
     for s in my_locked["slot"]:
         open_slots[SLOT[s]] -= 1
     lineups = _enumerate(free, open_slots)
+    if force_in:  # what-if: only lineups that start every forced player
+        forced = set(force_in)
+        kept = [lu for lu in lineups if forced <= {p for _, p in lu}]
+        lineups = kept or lineups
     sim = pl.concat([free, opp_start.filter(~pl.col("locked"))], how="diagonal_relaxed").unique("player_id").sort("player_id")
     col = {p: i for i, p in enumerate(sim["player_id"])}
     sides = [0 if t == min(t, o) else 1 for t, o in zip(sim["team"].to_list(), sim["opp"].fill_null("").to_list())]

@@ -205,6 +205,10 @@ def _groups(df: pl.DataFrame) -> list[tuple[str, pl.Expr, list[str]]]:
                   .when(pl.col(col) <= q1).then(pl.lit(labels[0]))
                   .when(pl.col(col) <= q2).then(pl.lit(labels[1])).otherwise(pl.lit(labels[2])))
 
+    def cnt(col):
+        return (pl.when(pl.col(col).is_null()).then(pl.lit(None)).when(pl.col(col) == 0).then(pl.lit("0 out"))
+                  .when(pl.col(col) == 1).then(pl.lit("1 out")).otherwise(pl.lit("2+ out")))
+
     skill = ["QB", "RB", "WR", "TE"]
     return [
         ("wind", wind, ["QB", "WR", "TE", "RB", "K"]),
@@ -236,6 +240,9 @@ def _groups(df: pl.DataFrame) -> list[tuple[str, pl.Expr, list[str]]]:
                                      .when(pl.col("games_back") == 0).then(pl.lit("not returning")), skill),
         ("return from IR", pl.when((pl.col("games_back") >= 1) & pl.col("from_ir")).then(pl.lit("games 1-3 after IR"))
                              .when(pl.col("games_back") == 0).then(pl.lit("not returning")), skill),
+        ("own OL starters out", cnt("ol_out"), skill),
+        ("opp OL starters out", cnt("opp_ol_out"), ["D/ST", "QB", "RB"]),
+        ("opp DB starters out", cnt("opp_db_out"), ["QB", "WR", "TE"]),
         ("opp implied total", terc("opp_implied_total", pl.lit(True)), skill),
         ("D-vs-O mismatch (stats)", terc("mismatch", pl.col("mismatch").is_not_null(),
                                           ("well matched", "avg", "badly matched")), skill),
@@ -267,3 +274,13 @@ def screen(df: pl.DataFrame) -> pl.DataFrame:
                              "bust%": round(100 * float((u < 0.1).mean()), 1),
                              "boom%": round(100 * float((u > 0.9).mean()), 1)})
     return pl.DataFrame(rows)
+
+
+
+def run_screen():
+    """Regenerate data/factor_screen.csv (historical evidence shown on the page)."""
+    from ..config import DATA_DIR
+    df = factor_frame()
+    r = screen(df)
+    r.write_csv(DATA_DIR / "factor_screen.csv")
+    return r

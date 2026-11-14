@@ -1,8 +1,11 @@
 """Local-only web server for the recommendation page (http://127.0.0.1:8765).
 
 GET  /                 the page
-GET  /api/report       recommendation report for ?snapshot=ID (default: latest)
-GET  /api/snapshots    recent snapshots to choose from
+GET  /api/weeks        weeks (live snapshots or replay) and teams
+GET  /api/report       ?week=&team=&snapshot=  recommendation report
+GET  /api/context      ?week=&snapshot=        raw context for the whole week
+GET  /api/tracking     ?team=                  season tracking
+POST /api/whatif       same query + JSON {force_in, force_out, proj_delta}
 POST /api/snapshot     take a fresh snapshot now (ESPN + weather + injuries; no odds credits)
 """
 from __future__ import annotations
@@ -21,7 +24,7 @@ from ..db import connect
 
 log = logging.getLogger("ff_model")
 STATIC = Path(__file__).parent / "static"
-_cache: dict[int, dict] = {}
+_cache: dict[tuple, dict] = {}
 _lock = threading.Lock()
 
 
@@ -49,43 +52,54 @@ class Handler(BaseHTTPRequestHandler):
     def _json(self, obj, code=200):
         self._send(code, json.dumps(_clean(obj), default=str).encode(), "application/json")
 
+    def _q(self):
+        u = urlparse(self.path)
+        q = {k: v[0] for k, v in parse_qs(u.query).items()}
+        return u.path, {k: int(v) for k, v in q.items() if v not in ("", "null")}
+
     def do_GET(self):
-        url = urlparse(self.path)
+        path, q = self._q()
         try:
-            if url.path in ("/", "/index.html"):
+            if path in ("/", "/index.html"):
                 return self._send(200, (STATIC / "index.html").read_bytes(), "text/html; charset=utf-8")
-            if url.path == "/api/snapshots":
-                con = connect()
-                rows = con.execute("SELECT id, slot_key, started_at, week, status FROM snapshots WHERE status IN ('ok','partial')"
-                                   " AND (slot_key IS NULL OR slot_key NOT LIKE '%backfill') ORDER BY id DESC LIMIT 30").fetchall()
-                return self._json([dict(r) for r in rows])
-            if url.path == "/api/report":
-                from ..model.report import build_report
-                sid = parse_qs(url.query).get("snapshot", [None])[0]
-                sid = int(sid) if sid else None
+            from ..model import report as R
+            if path == "/api/weeks":
+                return self._json({"weeks": R.weeks_available(),
+                                   "teams": [{"id": k, "name": v} for k, v in sorted(R.team_names().items(), key=lambda kv: kv[1].lower())],
+                                   "me": R.MY_TEAM_ID})
+            if path == "/api/report":
+                key = (q.get("week"), q.get("team"), q.get("snapshot"))
                 with _lock:
-                    key = sid or connect().execute(
-                        "SELECT MAX(id) FROM snapshots WHERE status IN ('ok','partial') AND"
-                        " (slot_key IS NULL OR slot_key NOT LIKE '%backfill')").fetchone()[0]
                     if key not in _cache:
-                        _cache[key] = build_report(key)
+                        _cache[key] = R.build_report(week=key[0], team_id=key[1], snapshot_id=key[2])
                 return self._json(_cache[key])
+            if path == "/api/context":
+                return self._json(R.week_context(q.get("week"), q.get("snapshot")))
+            if path == "/api/tracking":
+                return self._json(R.season_tracking(q.get("team")))
             self._send(404, b"not found", "text/plain")
         except Exception as e:
             log.error("web error: %s\n%s", e, traceback.format_exc())
             self._json({"error": f"{type(e).__name__}: {e}"}, 500)
 
     def do_POST(self):
-        if urlparse(self.path).path != "/api/snapshot":
-            return self._send(404, b"not found", "text/plain")
+        path, q = self._q()
         try:
-            from ..archive import runner
-            con = connect()
-            runner.refresh_pro_schedule(con)
-            sid = runner.snapshot(con, runner.current_week(con), with_odds=False)
-            self._json({"snapshot_id": sid})
+            if path == "/api/snapshot":
+                from ..archive import runner
+                con = connect()
+                runner.refresh_pro_schedule(con)
+                sid = runner.snapshot(con, runner.current_week(con), with_odds=False)
+                _cache.clear()
+                return self._json({"snapshot_id": sid})
+            if path == "/api/whatif":  # recompute with overrides; never cached
+                from ..model.report import build_report
+                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+                return self._json(build_report(week=q.get("week"), team_id=q.get("team"), snapshot_id=q.get("snapshot"),
+                                               overrides=body))
+            self._send(404, b"not found", "text/plain")
         except Exception as e:
-            log.error("snapshot error: %s\n%s", e, traceback.format_exc())
+            log.error("web error: %s\n%s", e, traceback.format_exc())
             self._json({"error": f"{type(e).__name__}: {e}"}, 500)
 
 

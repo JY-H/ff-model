@@ -47,12 +47,15 @@ def starters_out(seasons: list[int], extra_injuries: pl.DataFrame | None = None,
         inj = inj.filter(pl.col("week") < asof_week)
     if extra_injuries is not None:  # live: this week's archived report
         inj = pl.concat([inj, extra_injuries.select(inj.columns)], how="vertical_relaxed")
-    reported_out = {(r[0], r[1], r[2]) for r in inj.filter(pl.col("report_status").is_in(["Out", "Doubtful"]))
-                    .select("season", "week", "gsis_id").iter_rows()}
+    reported_out = {(r[0], r[1], r[2]): r[3] for r in inj.filter(pl.col("report_status").is_in(["Out", "Doubtful"]))
+                    .select("season", "week", "gsis_id", "report_status").iter_rows()}
     ros = (load("rosters_weekly", seasons).filter(pl.col("game_type") == "REG")
            .select(pl.col("season").cast(pl.Int64), pl.col("week").cast(pl.Int64), "gsis_id", "status"))
     on_reserve = {(r[0], r[1], r[2]) for r in ros.filter(pl.col("status") == "RES")
                   .select("season", "week", "gsis_id").iter_rows()}
+    names_of = {}
+    for r in sc.select("pfr_player_id", "player", "position").unique("pfr_player_id").iter_rows():
+        names_of[r[0]] = f"{r[1]} ({r[2]})"
 
     rows = []
     for unit, positions, pct in (("ol", OL, "offense_pct"), ("db", DB, "defense_pct")):
@@ -67,14 +70,20 @@ def starters_out(seasons: list[int], extra_injuries: pl.DataFrame | None = None,
                 st = [p for p, v in hist.items() if len(v) >= 2 and np.mean(v) >= 0.6]
                 this = ts.filter(pl.col("week") == w)
                 played = set(this.filter(pl.col(pct) > 0)["pfr_player_id"].to_list())
-                out_rep = sum((season, w, gsis.get(p)) in reported_out or (season, w, gsis.get(p)) in on_reserve
-                              for p in st)
-                rows.append((unit, season, w, team, len(st), out_rep,
-                             sum(p not in played for p in st) if w in weeks else None))
+                missing = []
+                for p in st:
+                    k = (season, w, gsis.get(p))
+                    why = reported_out.get(k) or ("IR/reserve" if k in on_reserve else None)
+                    if why:
+                        share = np.mean(hist[p])
+                        missing.append(f"{names_of.get(p, p)}: {why}, {share:.0%} of snaps")
+                rows.append((unit, season, w, team, len(st), len(missing),
+                             sum(p not in played for p in st) if w in weeks else None, "; ".join(missing)))
                 for p, g, v in zip(this["pfr_player_id"], this["gsis_id"], this[pct]):
                     hist.setdefault(p, []).append(v)
                     gsis[p] = g
-    df = pl.DataFrame(rows, schema=["unit", "season", "week", "team", "starters", "out", "out_actual"], orient="row")
-    wide = df.pivot(on="unit", index=["season", "week", "team"], values=["starters", "out", "out_actual"])
+    df = pl.DataFrame(rows, schema=["unit", "season", "week", "team", "starters", "out", "out_actual", "who"], orient="row")
+    wide = df.pivot(on="unit", index=["season", "week", "team"], values=["starters", "out", "out_actual", "who"])
     return wide.rename({"starters_ol": "ol_starters", "starters_db": "db_starters", "out_ol": "ol_out",
-                        "out_db": "db_out", "out_actual_ol": "ol_out_actual", "out_actual_db": "db_out_actual"})
+                        "out_db": "db_out", "out_actual_ol": "ol_out_actual", "out_actual_db": "db_out_actual",
+                        "who_ol": "ol_out_who", "who_db": "db_out_who"})
