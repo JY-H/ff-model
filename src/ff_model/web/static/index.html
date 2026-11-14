@@ -90,6 +90,7 @@ aside#drawer { position: fixed; top: 0; right: 0; height: 100vh; width: min(560p
   border-left: 1px solid var(--border); box-shadow: -8px 0 24px rgba(0,0,0,.2); overflow-y: auto; padding: 18px 20px 40px;
   transform: translateX(105%); transition: transform .18s ease; z-index: 20; color: var(--text-primary); }
 aside#drawer.open { transform: none; }
+.dtabs { margin: 4px 0 10px; } .dtabs button { padding: 6px 10px; }
 .takeaway { background: var(--surface-0); border-radius: 8px; padding: 10px 12px; margin: 6px 0 10px; line-height: 1.5; }
 .factor { border-top: 1px solid var(--grid); padding: 8px 0; } .factor .hd { display: flex; justify-content: space-between; font-weight: 600; }
 .factor p { margin: 4px 0; } .factor .ev { color: var(--text-muted); font-size: 12px; }
@@ -155,7 +156,8 @@ const S = {weeks: [], teams: [], me: null, week: null, team: null, snapshot: nul
 
 function readHash() { const h = new URLSearchParams(location.hash.slice(1));
   for (const k of ["week", "team", "snapshot"]) if (h.get(k)) S[k] = +h.get(k); if (h.get("tab")) S.tab = h.get("tab");
-  if (h.get("player")) S.openPlayer = +h.get("player"); }
+  if (h.get("player")) S.openPlayer = +h.get("player");
+  if (h.get("ptab")) S.dtab = h.get("ptab"); }
 function writeHash() { const h = new URLSearchParams(); for (const k of ["week", "team", "snapshot"]) if (S[k]) h.set(k, S[k]);
   h.set("tab", S.tab); history.replaceState(null, "", "#" + h); }
 const qs = () => { const p = new URLSearchParams(); if (S.week) p.set("week", S.week); if (S.team) p.set("team", S.team);
@@ -492,7 +494,10 @@ function openDrawer(p) {
       <div class="pmeta">${esc(p.pos || "")} · ${esc(p.team || "")}${p.opp ? " vs " + esc(p.opp) : " · bye"} · ${p.locked ? "game started" : when(p.kickoff)} · ${mine ? esc(r.me.name) : esc(r.opponent.name)}</div></div>
       <span class="spacer"></span><button onclick="closeDrawer()">Close</button></div>
     <div class="chips" style="margin:8px 0">${statusChips(p)}</div>
-    ${p.unavailable ? `<p class="secondary">Unavailable this week (bye, IR, Out, or inactive).</p>${historySection(p)}` : p.locked ? `<p class="secondary">Game has started: locked at ${pts(p.actual)} points.</p>${historySection(p)}` : `
+    <div class="tabs dtabs"><button data-dtab="week" class="${S.dtab !== "history" ? "on" : ""}">This week</button><button data-dtab="history" class="${S.dtab === "history" ? "on" : ""}">Projection history</button></div>
+    <div id="dt-history" style="${S.dtab === "history" ? "" : "display:none"}">${historySection(p) || '<p class="muted small" style="margin-top:12px">No projection history for this player yet.</p>'}</div>
+    <div id="dt-week" style="${S.dtab === "history" ? "display:none" : ""}">
+    ${p.unavailable ? `<p class="secondary">Unavailable this week (bye, IR, Out, or inactive).</p>` : p.locked ? `<p class="secondary">Game has started: locked at ${pts(p.actual)} points.</p>` : `
     <p class="takeaway">${takeaway(p)}</p>
     ${distSvg(p)}
     <div class="kv" style="margin-top:10px">
@@ -503,7 +508,6 @@ function openDrawer(p) {
     <h3>What moved the model's expectation <span class="muted small">(ESPN ${pts(p.proj)}${total ? ` ${sgn(total)} context` : ""} = model ${pts(p.model_mean)})</span></h3>
     ${(p.explain || []).map(e => `<div class="factor"><div class="hd"><span>${esc(e.headline)}</span><span>${e.factor === "shape" ? "" : e.factor === "teammates" ? "info only" : (Math.abs(e.effect) < 0.05 ? "no change" : sgn(e.effect))}</span></div>
       ${e.details.map(d => `<p>${esc(d)}</p>`).join("")}${(e.evidence || []).map(d => `<p class="ev">${esc(d)}</p>`).join("")}</div>`).join("")}
-    ${historySection(p)}
     ${p.statline && Object.keys(p.statline).length ? `<h3>ESPN's projected stat line</h3><div class="kv">${Object.entries(p.statline).map(([k, v]) => `<div>${esc(k)}<b>${pts(v, v < 10 ? 2 : 1)}</b></div>`).join("")}</div>` : ""}
     ${p.props && p.props.length ? `<h3>Betting props (median across books)</h3><table><tr><th>Market</th><th>Side</th><th class="num">Line</th><th class="num">Implied</th></tr>
       ${p.props.map(x => `<tr><td>${esc(x.market)}</td><td>${esc(x.outcome)}</td><td class="num">${x.line != null ? pts(x.line) : "–"}</td><td class="num">${pct(x.implied)}</td></tr>`).join("")}</table>`
@@ -514,8 +518,15 @@ function openDrawer(p) {
       <button onclick="whatif(${p.id}, 'in')">Force start</button><button onclick="whatif(${p.id}, 'out')">Force bench</button>
       <label class="small">Projection <input id="nudge" type="number" step="0.5" value="${p.nudge || 0}" style="width:80px"> pts</label>
       <button class="primary" onclick="whatif(${p.id}, 'nudge')">Apply</button></div>
-      <p class="small muted">Recomputes P(win) with the change. Use the projection nudge for news the model can't see (e.g. a role change).</p>` : ""}`}`;
+      <p class="small muted">Recomputes P(win) with the change. Use the projection nudge for news the model can't see (e.g. a role change).</p>` : ""}`}
+    </div>`;
   $("#drawer").classList.add("open");
+  document.querySelectorAll("[data-dtab]").forEach(b => b.onclick = () => {
+    S.dtab = b.dataset.dtab;
+    document.querySelectorAll("[data-dtab]").forEach(x => x.classList.toggle("on", x.dataset.dtab === S.dtab));
+    $("#dt-history").style.display = S.dtab === "history" ? "" : "none";
+    $("#dt-week").style.display = S.dtab === "history" ? "none" : "";
+  });
   document.querySelectorAll("rect.hbar").forEach(el => { el.onmousemove = e => { const x = S.histRows[+el.dataset.i];
       showTip(e, `Week ${x.week}: ESPN ${pts(x.proj)}, scored ${pts(x.actual)} (${sgn((x.actual || 0) - (x.proj || 0))})`); }; el.onmouseleave = hideTip; });
   document.querySelectorAll("rect.dbar").forEach(el => { el.onmousemove = e => showTip(e, `${pts(+el.dataset.a)}–${pts(+el.dataset.b)} pts: ${pct(+el.dataset.m, 1)} chance`); el.onmouseleave = hideTip; });
