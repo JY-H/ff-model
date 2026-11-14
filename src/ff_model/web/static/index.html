@@ -46,6 +46,14 @@ button.primary { background: var(--me); color: #fff; border-color: var(--me); }
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 12px; }
 .tile .label { color: var(--text-secondary); font-size: 12px; } .tile .value { font-size: 28px; font-weight: 650; }
 .tile .sub { color: var(--text-muted); font-size: 12px; }
+tr.hl td { background: var(--hl); }
+.story .srow { display: grid; grid-template-columns: 92px 1fr; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--grid); line-height: 1.5; }
+.story .srow:last-child { border-bottom: none; }
+.story .srow > b { font-size: 13px; } .story .pill { display: inline-block; padding: 0 5px; border-radius: 5px; font-weight: 600; font-size: 12px; }
+.story .why { margin-top: 3px; font-size: 12.5px; color: var(--text-secondary); }
+.story .why div::before { content: "→ "; color: var(--text-muted); }
+.story .up { color: var(--win); } .story .down { color: var(--loss); }
+@media (max-width: 700px) { .hide-sm { display: none; } }
 .grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin-top: 10px; }
 table { width: 100%; border-collapse: collapse; }
 th { text-align: left; font-weight: 600; font-size: 12px; color: var(--text-secondary); padding: 6px; border-bottom: 1px solid var(--border); white-space: nowrap; }
@@ -122,7 +130,7 @@ body { overflow-x: hidden; } .card, #main { min-width: 0; }
     <button id="fresh" title="Fetch ESPN projections, injuries and weather now (no odds credits)">Fresh snapshot</button>
   </div>
   <div class="tabs" id="tabs">
-    <button data-tab="matchup" class="on">Matchup</button><button data-tab="context">Week context</button><button data-tab="season">Season</button>
+    <button data-tab="matchup" class="on">Matchup</button><button data-tab="context">Week context</button><button data-tab="season">Season</button><button data-tab="review">Review</button>
   </div>
   <div id="main"><div class="loading">Loading…</div></div>
   <aside id="drawer" aria-label="Player details"></aside>
@@ -163,7 +171,7 @@ const S = {weeks: [], teams: [], me: null, week: null, team: null, snapshot: nul
 function readHash() { const h = new URLSearchParams(location.hash.slice(1));
   for (const k of ["week", "team", "snapshot"]) if (h.get(k)) S[k] = +h.get(k); if (h.get("tab")) S.tab = h.get("tab");
   if (h.get("player")) S.openPlayer = +h.get("player");
-  if (h.get("ptab")) S.dtab = h.get("ptab"); }
+  if (h.get("ptab")) S.dtab = h.get("ptab"); if (h.get("rev")) S.revOpen = h.get("rev"); }
 function writeHash() { const h = new URLSearchParams(); for (const k of ["week", "team", "snapshot"]) if (S[k]) h.set(k, S[k]);
   h.set("tab", S.tab); history.replaceState(null, "", "#" + h); }
 const qs = () => { const p = new URLSearchParams(); if (S.week) p.set("week", S.week); if (S.team) p.set("team", S.team);
@@ -214,6 +222,9 @@ async function route() {
       const [c, rep] = await Promise.all([getJSON("/api/context?" + qs()), getJSON("/api/report?" + qs())]);
       S.report = rep;
       renderContext(c, rep);
+    } else if (S.tab === "review") {
+      main.innerHTML = `<div class="loading">Splitting each result into role and luck…</div>`;
+      renderReview(await getJSON("/api/review?" + qs()));
     } else {
       main.innerHTML = `<div class="loading">Loading…</div>`;
       renderSeason(await getJSON("/api/tracking?" + qs()));
@@ -700,6 +711,115 @@ function renderSeason(t) {
         <td>${x.won ? "Won" : "Lost"}</td><td>${x.model_would_win ? "win" : "lose"}</td><td class="num">${pct(x.model_pwin)}</td><td class="small muted">${x.differs ? "model differs" : ""}</td></tr>`).join("")}
     </table></div>
     <p class="small muted">Click a week to open its matchup.</p>`;
+}
+// ------------------------------------------------------------------ post-week review
+// actual = ESPN projection + role (expected pts from the usage he got - projection) + luck (actual - expected pts)
+const luckTd = d => d == null ? `<td class="num muted">–</td>` : `<td class="num" style="${tint(d, 6)}">${sgn(d)}</td>`;
+const share = (a, b) => b ? Math.round(100 * a / b) + "%" : "–";
+const n0 = x => x == null ? "–" : Math.round(x).toString();
+function usageText(u) {
+  if (!u) return "";
+  const bits = [];
+  if (u.pass_att) bits.push(`${u.pass_att} pass att`);
+  if (u.targets) bits.push(`${u.targets} of ${u.team_targets} targets`);
+  if (u.carries) bits.push(`${u.carries} of ${u.team_carries} carries`);
+  if (u.i10) bits.push(`${u.i10} inside-10`);
+  return bits.join(" · ");
+}
+function waterfall(a, b) {
+  const steps = [["Projected margin", a.proj - b.proj, true], ["Role (usage vs ESPN)", a.role - b.role], ["Luck (what they did with it)", a.luck - b.luck],
+                 ["K & D/ST vs ESPN", a.kdst - b.kdst], ["Final margin", a.actual - b.actual, true]];
+  let run = 0; const segs = steps.map(([lab, v, total]) => { const s = total ? {lab, from: 0, to: v, v, total} : {lab, from: run, to: run + v, v}; run = total ? v : run + v; return s; });
+  const lo = Math.min(0, ...segs.flatMap(s => [s.from, s.to])), hi = Math.max(0, ...segs.flatMap(s => [s.from, s.to]));
+  const W = 560, L = 190, R = 60, rowH = 26, x = v => L + (W - L - R) * (v - lo) / ((hi - lo) || 1);
+  const rows = segs.map((s, i) => { const y = 6 + i * rowH, x0 = x(Math.min(s.from, s.to)), x1 = x(Math.max(s.from, s.to));
+    const col = s.total ? "var(--text-secondary)" : s.v >= 0 ? "var(--win)" : "var(--loss)";
+    return `<text x="${L - 8}" y="${y + 14}" font-size="12" text-anchor="end" fill="var(--text-secondary)">${s.lab}</text>
+      <rect x="${x0}" y="${y + 3}" width="${Math.max(1.5, x1 - x0)}" height="${rowH - 10}" rx="2" fill="${col}" opacity="${s.total ? .5 : .85}"/>
+      <text x="${x1 + 5}" y="${y + 14}" font-size="12" fill="var(--text-primary)" font-weight="${s.total ? 600 : 400}">${sgn(s.v)}</text>`; }).join("");
+  return `<svg viewBox="0 0 ${W} ${segs.length * rowH + 10}" width="100%" style="max-width:${W}px" role="img" aria-label="Margin breakdown">
+    <line x1="${x(0)}" x2="${x(0)}" y1="2" y2="${segs.length * rowH + 6}" stroke="var(--border)"/>${rows}</svg>`;
+}
+
+// One player's week in three lines: the work he got (vs his usual), what that work is worth vs ESPN (+ likely why), what he did with it.
+function playerStory(p) {
+  const u = p.usage;
+  if (!u) return `<div class="srow"><b>Work</b><span>No targets, carries or passes recorded (inactive, hurt early, or no touches).</span></div>`;
+  const shareBit = (n, tot, lab, us) => {
+    const sh = n / tot, d = us == null ? 0 : sh - us;
+    const arrow = Math.abs(d) >= 0.08 ? (d > 0 ? ` <b class="up">↑</b>` : ` <b class="down">↓</b>`) : "";
+    return `${n} of ${tot} ${lab} <span class="muted">· ${share(n, tot)}${us != null ? ` (usual ${Math.round(100 * us)}%)` : ""}</span>${arrow}`;
+  };
+  const work = [];
+  if (u.pass_att) work.push(`${u.pass_att} passes`);
+  if (u.team_carries && (u.carries || u.usual_car_share > 0.05)) work.push(shareBit(u.carries || 0, u.team_carries, "carries", u.usual_car_share));
+  if (u.team_targets && p.pos !== "QB") work.push(shareBit(u.targets || 0, u.team_targets, "targets", u.usual_tgt_share));
+  if (u.team_i10 && (u.i10 || u.usual_i10_share > 0.1)) work.push(shareBit(u.i10 || 0, u.team_i10, "inside-10", u.usual_i10_share));
+  const fmt = (st, v) => st === "yds" ? n0(v) : v.toFixed(1).replace(/\.0$/, "");
+  const did = p.parts.filter(x => x.xfp >= 1 || x.fp >= 1).flatMap(x => x.stats.filter(t => t.stat !== "rec" && (t.actual || t.exp >= 0.3))
+    .map(t => `${fmt(t.stat, t.actual)} ${x.part === "pass" ? "pass" : x.part === "rush" ? "rush" : "rec"} ${t.stat} <span class="muted">(${fmt(t.stat, t.exp)} exp)</span>`));
+  const why = (p.why || []).length ? `<div class="why">${p.why.map(w => `<div>${esc(w)}</div>`).join("")}</div>` : "";
+  return `<div class="srow"><b>Work</b><span>${work.join("<br>")}</span></div>
+    <div class="srow"><b>Role <span class="pill" style="${tint(p.role, 6)}">${sgn(p.role)}</span></b><span>Worth <b>${pts(p.xfp)}</b> vs ESPN's ${pts(p.proj)}${why}</span></div>
+    <div class="srow"><b>Luck <span class="pill" style="${tint(p.luck, 6)}">${sgn(p.luck)}</span></b><span>Scored <b>${pts(p.actual)}</b>${did.length ? ` · ${did.join(" · ")}` : ""}</span></div>`;
+}
+function partsTable(p) {
+  if (!p.parts.length) return "";
+  const f = (s, v) => s === "yds" ? n0(v) : v.toFixed(1);
+  return `<table class="small" style="margin-top:6px"><tr><th>What</th><th class="num" title="ESPN's projected stat line">ESPN projected</th><th class="num" title="What his actual touches usually produce">His touches usually produce</th><th class="num">Actual</th></tr>
+    ${p.parts.map(x => `<tr><td><b>${x.label}</b></td><td class="num"><b>${pts(x.espn)}</b> pts</td><td class="num"><b>${pts(x.xfp)}</b> pts</td><td class="num"><b>${pts(x.fp)}</b> pts</td></tr>
+      ${x.stats.map(s => `<tr><td class="muted" style="padding-left:16px">${s.stat}</td><td class="num muted">${f(s.stat, s.espn)}</td><td class="num muted">${f(s.stat, s.exp)}</td><td class="num">${f(s.stat, s.actual)}</td></tr>`).join("")}`).join("")}
+  </table><p class="small muted" style="margin:6px 0 0">Points use this league's scoring; fumbles aren't split out, so parts can differ slightly from the total. The gap between the first two columns is the role; between the last two, the luck.</p>`;
+}
+function reviewTable(rows, title, side) {
+  const st = rows.filter(p => p.slot !== "BE" && p.slot !== "IR").sort((a, b) => SLOTS.indexOf(a.slot) - SLOTS.indexOf(b.slot));
+  return `<div class="card scroll"><h3 style="margin-top:0">${esc(title)}</h3><table>
+    <tr><th>Slot</th><th>Player</th><th class="num">ESPN</th><th class="num" title="Expected points from the usage he actually got">Usage worth</th><th class="num">Actual</th>
+      <th class="num" title="Usage worth − ESPN">Role</th><th class="num" title="Actual − usage worth">Luck</th><th></th></tr>
+    ${st.map(p => { const k = side + p.id, open = S.revOpen === k;
+      return `<tr class="clickable ${open ? "hl" : ""}" data-rev="${k}"><td class="muted">${p.slot}</td><td><b>${esc(p.name)}</b> <span class="muted small">${esc(p.pos || "")} ${esc(p.team || "")}</span>
+        <div class="small muted">${usageText(p.usage)}</div></td>
+      <td class="num">${pts(p.proj)}</td><td class="num">${p.xfp == null ? `<span class="muted small">n/a</span>` : pts(p.xfp)}</td><td class="num"><b>${pts(p.actual)}</b></td>
+      ${p.xfp == null ? `<td class="num muted" colspan="2" style="text-align:center;${tint(p.actual - p.proj, 6)}">${sgn(p.actual - p.proj)} vs ESPN</td>` : luckTd(p.role) + luckTd(p.luck)}
+      <td class="muted">${p.xfp == null ? "" : open ? "▾" : "▸"}</td></tr>
+      ${open && p.xfp != null ? `<tr class="hl"><td colspan="8" style="padding:4px 10px 14px"><div class="story">${playerStory(p)}</div>
+        <div style="margin-top:10px">${partsTable(p)}</div></td></tr>` : ""}`; }).join("")}
+  </table></div>`;
+}
+function leagueList(title, sub, xs, key) {
+  return `<div class="card"><h3 style="margin-top:0">${title}</h3><p class="small muted" style="margin:-4px 0 6px">${sub}</p><table>
+    <tr><th>Player</th><th class="num">ESPN</th><th class="num">Usage worth</th><th class="num">Actual</th><th class="num">${key === "luck" ? "Luck" : "Role"}</th></tr>
+    ${xs.map(p => `<tr><td>${esc(p.name)} <span class="muted small">${p.pos} ${esc(p.team || "")}</span>
+        ${key === "role" && p.why && p.why.length ? `<div class="small secondary" style="margin-top:2px">${p.why.map(esc).join("<br>")}</div>` : ""}</td><td class="num">${pts(p.proj)}</td><td class="num">${pts(p.xfp)}</td>
+      <td class="num">${pts(p.actual)}</td>${luckTd(p[key])}</tr>`).join("")}</table></div>`;
+}
+function renderReview(d) {
+  S.reviewData = d;
+  const r = d.review, a = r.totals.me, b = r.totals.opp;
+  $("#title").textContent = `Start/Sit · Week ${r.week} review`;
+  const note = d.requested && d.requested !== r.week ? `<p class="small" style="background:var(--hl);padding:6px 10px;border-radius:6px">Week ${d.requested} isn't final yet, so this shows Week ${r.week}. Live weeks join once Tuesday's finals are archived.</p>` : "";
+  const won = a.actual > b.actual;
+  $("#main").innerHTML = `${note}
+    <p class="secondary small" style="margin-top:10px">Every result = ESPN's projection + <b>role</b> (what the work he actually got is usually worth, minus ESPN's projection) + <b>luck</b> (what he did with that work: efficiency, touchdowns, big plays).
+      “Usage worth” is nflverse's expected fantasy points for each target, carry and pass based on where it happened, rescored for this league. K and D/ST have no usage model. Click a player for the full breakdown.
+      <b>Information only:</b> on 2019–2025, neither part predicted the next week better than ESPN.</p>
+    <div class="grid2">
+      <div class="card"><h3 style="margin-top:0">${esc(r.me.name)} ${pts(a.actual)} – ${pts(b.actual)} ${esc(r.opp.name)} · ${won ? "won" : "lost"}</h3>
+        <p style="margin:0 0 8px">${esc(r.verdict)}</p>${waterfall(a, b)}
+        <p class="small muted" style="margin:6px 0 0">Positive = in ${esc(r.me.name)}'s favour. Each bar is your starters' total minus theirs.</p></div>
+      <div class="card"><h3 style="margin-top:0">Bench calls</h3>${r.bench_calls.length ? r.bench_calls.map(c => `<div class="factor"><div class="hd"><span>${esc(c.bench.name)} (bench) ${pts(c.bench.actual)} vs ${esc(c.starter.name)} ${pts(c.starter.actual)}</span><span>${sgn(-c.gain)}</span></div>
+          <p class="small secondary">ESPN ${pts(c.bench.proj)} vs ${pts(c.starter.proj)} · usage worth ${pts(c.bench.xfp)} vs ${pts(c.starter.xfp)}</p><p class="small">${esc(c.why)}</p></div>`).join("")
+        : `<p class="small muted">No bench player beat a starter he could have replaced by 3+ points.</p>`}</div>
+    </div>
+    <div class="grid2" style="margin-top:10px">${reviewTable(r.players.me, r.me.name, "me")}${reviewTable(r.players.opp, r.opp.name, "opp")}</div>
+    <h2>Around the league, Week ${r.week}</h2>
+    <div class="grid2">
+      ${leagueList("Unlucky with a big role", "Usage worth 10+, scored far less", r.league.unlucky, "luck")}
+      ${leagueList("Lucky", "Usage worth 10+, scored far more", r.league.lucky, "luck")}
+      ${leagueList("Used more than ESPN expected", "Role above the projection, with likely reasons from snaps, injuries, the betting line vs the final score, team volume and weather", r.league.role_up, "role")}
+      ${leagueList("Used less than ESPN expected", "Projected 8+, role below the projection, with likely reasons", r.league.role_down, "role")}
+    </div>`;
+  document.querySelectorAll("[data-rev]").forEach(tr => tr.onclick = () => { S.revOpen = S.revOpen === tr.dataset.rev ? null : tr.dataset.rev; renderReview(S.reviewData); });
 }
 init().catch(e => $("#main").innerHTML = `<div class="loading err">${esc(e.message)}</div>`);
 </script>

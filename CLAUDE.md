@@ -97,7 +97,7 @@ Saves the data that disappears if it isn't captured at the time. launchd runs `t
 - **Unknown:** whether they freeze at kickoff or earlier (before inactives). Check this by comparing the archived 2026 W10 snapshots with what the API serves afterwards.
 - **Don't use** the injury and status fields in these responses. They're players' *current* status, not the status that week. Use the nflverse injury reports instead.
 
-**nflverse (2012 to now):** weekly player and team stats, snap counts, schedules with closing spread and total, injury reports, `ff_opportunity` (expected fantasy points), and `ff_playerids` (ID crosswalk).
+**nflverse (2012 to now):** play-by-play (trimmed to ~27 columns), weekly player and team stats, snap counts, schedules with closing spread and total, injury reports, `ff_opportunity` (expected fantasy points), and `ff_playerids` (ID crosswalk).
 
 - ESPN player IDs map to nflverse `gsis_id` through `ff_playerids.espn_id`. All rostered skill players and kickers match.
 - D/ST joins on NFL team instead.
@@ -117,7 +117,7 @@ Saves the data that disappears if it isn't captured at the time. launchd runs `t
   - the spread, for every position
   - injury designation plus final practice status, and first/second game back, for RB/WR/TE
   - OL starters out (QB/RB), opponent OL out (D/ST) and opponent DBs out (QB)
-- **Tested and left out** (ESPN already prices them): opponent defense quality, points allowed by position, pace, kicker stall rate, the "bad defense means they throw more" idea, and key teammates out. Teammates out is shown on the page as information only.
+- **Tested and left out** (ESPN already prices them): opponent defense quality, points allowed by position, pace, kicker stall rate, the "bad defense means they throw more" idea, and key teammates out, and play-by-play opportunity (`research/opportunity.py`, evidence in `data/opportunity_screen.csv`): last week's points over expected, expected points vs ESPN, target-share trend, air-yard share and inside-10 share. 3 of 60 cells cleared the noise band, about what chance gives; the most consistent one (goal-line RBs miss ESPN) disappears once the projection's size is controlled for, and reverses in 2026. Teammates out is shown on the page as information only.
 - **Live distributions are "ESPN + context"** (`espn_context_quantiles`): the model's shape, with the mean pinned to ESPN's projection plus the context shift. A player card always adds up: model = ESPN + listed effects.
 - **Calibration:** on 2024–2025 and the 2026 holdout, about 10% of outcomes fall below the predicted 10th percentile and about 10% above the 90th. Known weak spots: kickers' upside is a little narrow, and 15+ mph wind is slightly optimistic at the low end.
 
@@ -138,6 +138,7 @@ Saves the data that disappears if it isn't captured at the time. launchd runs `t
   - a player panel with a plain-English summary, distribution, what moved the expectation, evidence, stat line, props, and what-if controls
   - a week-context tab grouped by game
   - a season replay tab
+  - a review tab for finished weeks (`model/review.py`): each result split into ESPN's projection + **role** (what the usage he got is usually worth, from nflverse expected points, minus ESPN) + **luck** (actual minus that), with rule-based guesses for why usage differed (snap share, next week's injury report, teammates out or leaving early, final score vs. the line, team volume, wind). Information only.
 - Any week (live, or replay of 2026 W1–9 with final results) and any team can be shown.
 
 ### 6. Backtest ✅ and live tracking ⏭️
@@ -156,10 +157,10 @@ src/ff_model/
   sources/   espn.py  odds.py  weather.py  stadiums.py     API clients and reference data
   archive/   slots.py  runner.py  wakes.py  launchd.py  parse.py  context.py
   research/  nflverse.py  espn_history.py  scoring.py  projection_errors.py
-             factor_tests.py  line_injuries.py  vacated.py
+             factor_tests.py  line_injuries.py  vacated.py  opportunity.py
   model/     marginals.py  correlation.py  simulate.py  optimize.py  live.py  report.py
-             backtest.py  backtest_synth.py  evaluate.py
-  web/       server.py  static/index.html
+             backtest.py  backtest_synth.py  evaluate.py  rankings.py  review.py
+  web/       server.py  static/index.html  static/rankings.html
 ```
 
 **Commands** (`uv run ff-archive …`):
@@ -178,6 +179,7 @@ src/ff_model/
 | `fit-correlation` | re-estimate role-pair correlations |
 | `recommend [--snapshot N]` | best lineup by P(win) for my matchup, as text |
 | `web` | the recommendation page at http://127.0.0.1:8765 (local only) |
+| `rankings [--snapshot N]` | write a shareable all-player rankings page to `data/share/` (no league details) |
 | `backtest-synth --variant V --seasons …` | synthetic walk-forward backtest (run a single season first) |
 
 **Data** (all under `data/`, gitignored, only on this laptop):

@@ -5,6 +5,7 @@ GET  /api/weeks        weeks (live snapshots or replay) and teams
 GET  /api/report       ?week=&team=&snapshot=  recommendation report
 GET  /api/context      ?week=&snapshot=        raw context for the whole week
 GET  /api/tracking     ?team=                  season tracking
+GET  /api/review       ?week=&team=            post-week review: role vs luck (finished weeks)
 POST /api/whatif       same query + JSON {force_in, force_out, proj_delta}
 POST /api/snapshot     take a fresh snapshot now (ESPN + weather + injuries; no odds credits)
 """
@@ -75,6 +76,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(_cache[key])
             if path == "/api/context":
                 return self._json(R.week_context(q.get("week"), q.get("snapshot")))
+            if path == "/api/review":
+                from ..model.review import FINISHED, week_review
+                wk = q.get("week") if q.get("week") in FINISHED else max(FINISHED)
+                return self._json({"requested": q.get("week"), "review": week_review(wk, q.get("team"))})
             if path == "/api/tracking":
                 return self._json(R.season_tracking(q.get("team")))
             self._send(404, b"not found", "text/plain")
