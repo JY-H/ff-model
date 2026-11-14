@@ -31,6 +31,7 @@ SEASONAL = {
     "schedules": nfl.load_schedules,
     "injuries": nfl.load_injuries,
     "ff_opportunity": lambda s: nfl.load_ff_opportunity(s, stat_type="weekly"),
+    "rosters_weekly": nfl.load_rosters_weekly,  # each player's team per week (known pre-game)
 }
 # name -> loader for tables that aren't split by season
 STATIC = {
