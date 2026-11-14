@@ -50,6 +50,7 @@ th { text-align: left; font-weight: 600; font-size: 12px; color: var(--text-seco
 td { padding: 6px; border-bottom: 1px solid var(--grid); vertical-align: middle; }
 .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pname { font-weight: 600; } .pmeta { font-size: 12px; color: var(--text-muted); }
+.rngcell { width: 1%; white-space: nowrap; padding-left: 4px; padding-right: 4px; }
 .clickable { cursor: pointer; } .clickable:hover { background: var(--grid); }
 .h2h td.slot { text-align: center; font-weight: 600; color: var(--text-secondary); font-size: 12px; background: var(--surface-0); width: 52px; }
 .h2h td.r { text-align: right; } .h2h .rec { box-shadow: inset 3px 0 0 var(--me); }
@@ -292,16 +293,16 @@ function cell(p, side, align) {
     <div class="pmeta">${esc(p.pos || "")} · ${esc(p.team || "")}${p.opp ? " vs " + esc(p.opp) : " · bye"} · ${p.locked ? "played" : when(p.kickoff)}${fin}</div>
     <div class="chips" style="${align === "r" ? "justify-content:flex-end;" : ""}margin-top:2px">${statusChips(p)}</div></td>`;
   const e = `<td class="num">${pts(p.proj)}</td>`, m = modelTd(p);
-  const rg = `<td class="clickable" data-player="${p.id}">${rangeSvg(p, S.sc, side)}</td>`;
+  const rg = `<td class="clickable rngcell" data-player="${p.id}">${rangeSvg(p, S.sc, side)}</td>`;
   return side === "me" ? name + e + m + rg : rg + m + e + name;
 }
 function benchTable(all, side, title) {
   const rows = all.filter(p => !p.unavailable), gone = all.filter(p => p.unavailable);
   const why = p => p.status === "IR" ? "IR" : p.status === "Out" ? "Out" : p.opp ? "inactive" : "bye";
   return `<div class="card scroll"><div class="secondary small">${esc(title)}</div><table>
-    <tr><th>Player</th><th class="num">ESPN</th><th class="num">Model</th><th>${axisSvg(S.sc)}</th>${side === "me" ? '<th class="num">P(win) if started</th>' : ""}</tr>
+    <tr><th>Player</th><th class="num">ESPN</th><th class="num">Model</th><th class="rngcell">${axisSvg(S.sc)}</th>${side === "me" ? '<th class="num">P(win) if started</th>' : ""}</tr>
     ${rows.map(p => `<tr><td class="clickable" data-player="${p.id}"><div class="pname">${esc(p.name)}</div><div class="pmeta">${esc(p.pos || "")} · ${esc(p.team || "")}${p.opp ? " vs " + esc(p.opp) : " · bye"}${p.final != null ? ` · final ${pts(p.final)}` : ""}${p.started_actually ? " · they started him" : ""}</div><div class="chips">${statusChips(p)}</div></td>
-      <td class="num">${pts(p.proj)}</td>${modelTd(p)}<td class="clickable" data-player="${p.id}">${rangeSvg(p, S.sc, side)}</td>
+      <td class="num">${pts(p.proj)}</td>${modelTd(p)}<td class="clickable rngcell" data-player="${p.id}">${rangeSvg(p, S.sc, side)}</td>
       ${side === "me" ? `<td class="num">${p.pwin_if_started != null ? pct(p.pwin_if_started, 1) : "–"}</td>` : ""}</tr>`).join("")}</table>
     ${gone.length ? `<div class="small muted" style="margin-top:6px">Unavailable: ${gone.map(p => `<span class="clickable" data-player="${p.id}">${esc(p.name)}</span> (${why(p)})`).join(", ")}</div>` : ""}</div>`;
 }
@@ -398,7 +399,7 @@ function renderMatchup(r) {
     <h2>Head to head${replay ? " (model's lineup vs. their actual lineup)" : ""}</h2>
     ${rangeLegend(replay)}
     <div class="card scroll" style="margin-top:6px"><table class="h2h">
-      <tr><th>${esc(r.me.name)}</th><th class="num">ESPN</th><th class="num">Model</th><th>${axisSvg(S.sc)}</th><th></th><th>${axisSvg(S.sc)}</th><th class="num">Model</th><th class="num">ESPN</th><th style="text-align:right">${esc(r.opponent.name)}</th></tr>
+      <tr><th>${esc(r.me.name)}</th><th class="num">ESPN</th><th class="num">Model</th><th class="rngcell">${axisSvg(S.sc)}</th><th></th><th class="rngcell">${axisSvg(S.sc)}</th><th class="num">Model</th><th class="num">ESPN</th><th style="text-align:right">${esc(r.opponent.name)}</th></tr>
       ${SLOTS.map((s, i) => { const a = me.slots[i], b = op.slots[i];
         return `<tr class="${a && a.recommended && ["BE", "IR"].includes(a.slot) ? "rec" : ""}">${cell(a, "me", "")}<td class="slot">${s}</td>${cell(b, "opp", "r")}</tr>`; }).join("")}
     </table></div>
