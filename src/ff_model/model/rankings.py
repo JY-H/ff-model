@@ -7,6 +7,7 @@ no rosters, team names or IDs; only the scoring rules, stated in plain words.
 from __future__ import annotations
 
 import json
+import math
 from datetime import datetime
 from pathlib import Path
 
@@ -58,6 +59,68 @@ def _scoring() -> dict:
             "note": "Tiers not listed (e.g. 18–27 points allowed, 300–349 yards allowed) score 0."}
 
 
+# prop market -> ESPN stat id it lines up with
+MARKET_STAT = {"player_receptions": "53", "player_reception_yds": "42", "player_rush_yds": "24", "player_pass_yds": "3"}
+
+
+def _book_median(lines: list[tuple[float, float]]) -> float:
+    """The books' median from (line, no-vig chance of the over) pairs: where the over is a coin flip."""
+    lines = sorted(lines)
+    for (a, pa), (b, pb) in zip(lines, lines[1:]):
+        if pa >= 0.5 >= pb and pa > pb:
+            return a + (b - a) * (pa - 0.5) / (pa - pb)
+    return min(lines, key=lambda x: abs(x[1] - 0.5))[0]
+
+
+def _books(props: list[dict], statline: dict, pos: str) -> list[dict]:
+    """The books' number for each stat ESPN projects, from the player props.
+
+    Yardage and receptions: the books' median (where the no-vig over is a coin flip). Touchdowns:
+    expected rushing + receiving TDs (a QB's own runs only) from the anytime-TD price.
+    """
+    by: dict[str, dict] = {}
+    for x in props:
+        by.setdefault(x["market"], {}).setdefault(x["line"], {})[x["outcome"]] = x["implied"]
+    out = []
+    for m, sid in MARKET_STAT.items():
+        lines = [(ln, o["Over"] / (o["Over"] + o["Under"])) for ln, o in by.get(m.replace("player_", "").replace("_", " "), {}).items()
+                 if ln is not None and "Over" in o and "Under" in o]
+        if lines:
+            out.append({"stat": STAT_NAMES[sid], "sid": int(sid), "espn": float(statline.get(sid) or 0.0),
+                        "book": _book_median(lines)})
+    td = by.get("anytime td", {}).get(None, {}).get("Yes")
+    if td is not None:
+        espn = sum(float(statline.get(k) or 0.0) for k in (("25",) if pos == "QB" else ("25", "43")))
+        out.append({"stat": "TDs", "sid": None, "espn": espn, "book": -math.log(1 - min(td, 0.95)), "chance": td})
+    return out
+
+
+def _books_summary(players: list[dict], rules: dict) -> dict:
+    """Put the books on ESPN's scale, then turn each player's differences into points.
+
+    Raw props sit systematically off ESPN: a line is a median, below the average ESPN projects
+    because yardage is skewed, and anytime-TD prices carry the books' margin. Each stat is divided
+    by its slate-wide ratio (books' total over ESPN's), so what's left is where the books are higher or lower on a
+    player than they usually are. Information only, not a model input.
+    """
+    ratio = {}
+    for k in {x["stat"] for p in players for x in p["books"]}:
+        xs = [x for p in players for x in p["books"] if x["stat"] == k and x["espn"] > 0]
+        if len(xs) >= 10:
+            ratio[k] = sum(x["book"] for x in xs) / sum(x["espn"] for x in xs)
+    for p in players:
+        stats, delta = [], 0.0
+        for x in p["books"]:
+            if x["stat"] not in ratio:
+                continue
+            adj = x["book"] / ratio[x["stat"]]
+            delta += (adj - x["espn"]) * (6 if x["sid"] is None else rules.get(x["sid"], (0, 0))[0])
+            stats.append({"stat": x["stat"], "espn": round(x["espn"], 2), "book": round(adj, 2), "raw": round(x["book"], 2),
+                          **({"chance": round(x["chance"], 3)} if "chance" in x else {})})
+        p["books"] = {"points": round(p["proj"] + delta, 2), "stats": stats} if stats else None
+    return {k: round(v, 3) for k, v in sorted(ratio.items())}
+
+
 def _chances(q: np.ndarray, proj: float) -> dict:
     taus = np.asarray(TAUS)
     cdf = lambda x: float(np.interp(x, q, taus, left=0.0, right=1.0))  # noqa: E731
@@ -86,6 +149,7 @@ def build(snapshot_id: int | None = None) -> dict:
     totals = _totals(con, sid, week)
     line_who = _line_who(source, sid, week)
     vac_who = _vacated_who(source, sid, week)
+    rules = league_rules()
 
     players = []
     for i, r in enumerate(df.iter_rows(named=True)):
@@ -115,20 +179,25 @@ def build(snapshot_id: int | None = None) -> dict:
                                                  f"{vt[0]:.0%} of the team's targets and {vt[1]:.0%} of its carries are vacated.",
                                                  "Not a model input: ESPN's projection already moves for this."],
                                      "evidence": [e for e in [_ev("teammate targets vacated", r["pos"], grp)] if e]})
-        p["props"] = [x for x in _props(con, sid, r["name"]) if x["outcome"] in ("Over", "Yes")]
+        p["books"] = _books(_props(con, sid, r["name"]), statlines.get(r["player_id"]) or {}, r["pos"])
         for k in ("roof", "wind", "temp", "gust", "precip_prob", "ol_out", "opp_ol_out", "opp_db_out",
                   "td_share", "rec_share", "games_back"):
             p.pop(k)
         players.append(p)
     players.sort(key=lambda x: -x["mean"])
+    books_scale = _books_summary(players, rules)
     fetched = con.execute("SELECT started_at FROM snapshots WHERE id=?", (sid,)).fetchone()[0] if sid else None
     return {"week": week, "season": int(pool["season"][0]), "as_of": fetched, "taus": taus,
-            "scoring": _scoring(), "players": players}
+            "scoring": _scoring(), "books_scale": books_scale, "players": players}
+
+
+def render(data: dict) -> str:
+    return TEMPLATE.read_text().replace("/*DATA*/null", json.dumps(data, separators=(",", ":")))
 
 
 def write(snapshot_id: int | None = None) -> Path:
     data = build(snapshot_id)
-    html = TEMPLATE.read_text().replace("/*DATA*/null", json.dumps(data, separators=(",", ":")))
+    html = render(data)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     out = OUT_DIR / f"rankings-{data['season']}-w{data['week']:02d}.html"
     out.write_text(html)

@@ -74,6 +74,9 @@ td.rng { width: 34%; min-width: 180px; }
 .stat b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
 .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--text-primary); color: var(--surface-1); padding: 8px 14px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; }
 .toast.on { opacity: 1; }
+table.bk { margin-top: 8px; border: none; border-radius: 0; font-size: 12.5px; }
+table.bk th, table.bk td { padding: 3px 6px; }
+table.bk th { border-bottom: 1px solid var(--grid); }
 .foot { margin-top: 18px; font-size: 12px; color: var(--text-muted); }
 </style>
 </head>
@@ -82,7 +85,7 @@ td.rng { width: 34%; min-width: 180px; }
 <script>
 const D = /*DATA*/null;
 const POS = ["ALL", "QB", "RB", "WR", "TE", "FLEX", "K", "D/ST"];
-const SORTS = {mean: "Expected", proj: "ESPN", p50: "Typical", p10: "Floor", p90: "Ceiling", twenty: "20+ chance", dud: "Dud chance"};
+const SORTS = {mean: "Expected", proj: "ESPN", books: "Books vs ESPN", p50: "Typical", p10: "Floor", p90: "Ceiling", twenty: "20+ chance", dud: "Dud chance"};
 const T = D.taus, I = t => T.indexOf(t);
 const S = {pos: "ALL", sort: "mean", q: "", open: null};
 try { const h = location.hash.slice(1).toUpperCase().replace("DST", "D/ST"); if (POS.includes(h)) S.pos = h; } catch (e) {}
@@ -94,7 +97,8 @@ const sgn = v => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(1);
 const tint = (d, scale = 2.5) => d == null || Math.abs(d) < 0.1 ? "" :
   `background: color-mix(in srgb, ${d > 0 ? "var(--up)" : "var(--down)"} ${Math.round(12 + 33 * Math.min(1, Math.abs(d) / scale))}%, transparent);`;
 const qv = (p, t) => p.q[I(t)];
-const val = (p, k) => k === "mean" ? p.mean : k === "proj" ? p.proj : k === "twenty" ? p.chance.twenty : k === "dud" ? p.chance.dud : qv(p, +k.slice(1) / 100);
+const bookGap = p => p.books ? p.books.points - p.proj : null;
+const val = (p, k) => k === "books" ? bookGap(p) : k === "mean" ? p.mean : k === "proj" ? p.proj : k === "twenty" ? p.chance.twenty : k === "dud" ? p.chance.dud : qv(p, +k.slice(1) / 100);
 const kick = p => { if (!p.kickoff) return ""; const d = new Date(p.kickoff);
   return d.toLocaleString(undefined, {weekday: "short", hour: "numeric", minute: "2-digit"}); };
 
@@ -159,8 +163,18 @@ function detail(p) {
       ${e.details.map(t => `<p>${esc(t)}</p>`).join("")}${(e.evidence || []).map(t => `<p class="ev">${esc(t)}</p>`).join("")}</div>`;
   }).join("");
   const sl = Object.entries(p.statline);
-  const props = p.props.map(x => `<div>${esc(x.market)} ${x.line != null ? esc(x.outcome) + " " + x.line : ""}<b>${pct(x.implied)}</b></div>`).join("");
-  return `<tr class="detail"><td colspan="9"><div class="dgrid">
+  const statFmt = (x, v) => x.stat === "TDs" ? v.toFixed(2) : x.stat.endsWith("yds") ? Math.round(v) : v.toFixed(1);
+  const books = p.books ? `<div class="pcard"><div class="ptitle">Sportsbook props vs ESPN</div>
+      <div style="font-size:13.5px">Books imply about <b>${pts(p.books.points)}</b> vs ESPN's ${pts(p.proj)}
+        <span class="eff" style="padding:0 6px;border-radius:6px;${tint(bookGap(p))}">${sgn(bookGap(p))}</span></div>
+      <table class="bk"><thead><tr><th></th><th class="num">ESPN</th><th class="num">Books</th><th class="num">Diff</th></tr></thead><tbody>
+      ${p.books.stats.map(x => { const lab = x.stat === "TDs" && p.pos === "QB" ? "rush TDs" : x.stat, d = x.book - x.espn;
+        return `<tr><td>${esc(lab)}${x.chance != null ? `<span class="sub"> · ${pct(x.chance)} anytime</span>` : ""}</td><td class="num">${statFmt(x, x.espn)}</td>
+          <td class="num">${statFmt(x, x.book)}</td><td class="num" style="${tint(d, x.stat.endsWith("yds") ? 20 : 1)}">${d >= 0 ? "+" : "−"}${statFmt(x, Math.abs(d))}</td></tr>`; }).join("")}
+      </tbody></table>
+      <p class="small muted" style="margin:6px 0 0">Each prop replaces the matching stat in ESPN's line; other stats keep ESPN's number.
+        Books are put on ESPN's scale first (see the note at the top). Information only: props aren't a model input.</p></div>` : "";
+  return `<tr class="detail"><td colspan="10"><div class="dgrid">
     <div style="display:grid;gap:12px;align-content:start">
       <div class="pcard"><div style="font-size:13.5px">${takeaway(p)}</div></div>
       <div class="pcard"><div class="ptitle">Range of outcomes</div>${distSvg(p)}</div>
@@ -169,7 +183,7 @@ function detail(p) {
         <div>Floor (10th)<b>${pts(qv(p, .1))}</b></div><div>Ceiling (90th)<b>${pts(qv(p, .9))}</b></div><div>Beats ESPN<b>${pct(p.chance.beat_proj)}</b></div>
         <div>Under 5<b>${pct(p.chance.dud)}</b></div><div>20+<b>${pct(p.chance.twenty)}</b></div></div></div>
       ${sl.length ? `<div class="pcard"><div class="ptitle">ESPN's projected stat line</div><div class="stat">${sl.map(([k, v]) => `<span>${esc(k)} <b>${v}</b></span>`).join("")}</div></div>` : ""}
-      ${props ? `<div class="pcard"><div class="ptitle">Sportsbook props (implied chance)</div><div class="kv">${props}</div></div>` : ""}
+      ${books}
     </div>
     <div class="pcard" style="align-self:start"><div class="ptitle">Why: what moved the expectation</div>${why}
       <p class="small muted" style="margin:8px 0 0">Effects are on expected points and add up: expected = ESPN + listed effects.</p></div>
@@ -181,7 +195,8 @@ function shown() {
   let ps = D.players.filter(p => S.pos === "ALL" || (S.pos === "FLEX" ? ["RB", "WR", "TE"].includes(p.pos) : p.pos === S.pos));
   if (q) ps = ps.filter(p => (p.name + " " + p.team).toLowerCase().includes(q));
   const asc = S.sort === "dud";
-  return ps.slice().sort((a, b) => asc ? val(a, S.sort) - val(b, S.sort) : val(b, S.sort) - val(a, S.sort));
+  const v = p => val(p, S.sort) ?? (asc ? Infinity : -Infinity);
+  return ps.slice().sort((a, b) => asc ? v(a) - v(b) : v(b) - v(a));
 }
 
 function render() {
@@ -198,6 +213,7 @@ function render() {
         <div class="sub">${esc(p.pos)} · ${esc(p.team)} vs ${esc(p.opp)}<span class="hide-sm"> · ${kick(p)}</span></div></td>
       <td class="num">${pts(p.proj)}</td>
       <td class="num" style="${tint(d)}">${pts(p.mean)}<span class="dsmall">${Math.abs(d) < 0.1 ? "±0" : sgn(d)}</span></td>
+      <td class="num hide-sm" ${p.books ? `style="${tint(bookGap(p), 4)}"` : ""}>${p.books ? pts(p.books.points) + `<span class="dsmall">${Math.abs(bookGap(p)) < 0.1 ? "±0" : sgn(bookGap(p))}</span>` : `<span class="muted">–</span>`}</td>
       <td class="rng">${rangeSvg(p, lo, hi)}</td>
       <td class="num hide-sm">${pts(qv(p, .1))}–${pts(qv(p, .9))}</td>
       <td class="num hide-sm">${pct(p.chance.twenty)}</td>
@@ -206,19 +222,19 @@ function render() {
   }).join("");
   const ax = []; for (let v = lo; v <= hi; v += hi > 40 ? 10 : 5) ax.push(v);
   document.getElementById("tbl").innerHTML = `<thead><tr>
-      <th class="num">Rank</th><th>Player</th>${th("proj", "ESPN")}${th("mean", "Expected")}
+      <th class="num">Rank</th><th>Player</th>${th("proj", "ESPN")}${th("mean", "Expected")}${th("books", "Books", "num hide-sm")}
       <th>Range <span class="muted" style="font-weight:400">(0–${hi} pts)</span></th>${th("p10", "Floor–ceiling", "num hide-sm")}${th("twenty", "20+", "num hide-sm")}${th("dud", "Under 5", "num hide-sm")}<th></th></tr></thead>
-    <tbody>${rows || `<tr><td colspan="9" class="muted">No players match.</td></tr>`}</tbody>`;
+    <tbody>${rows || `<tr><td colspan="10" class="muted">No players match.</td></tr>`}</tbody>`;
   document.querySelectorAll(".seg button").forEach(b => b.classList.toggle("on", b.dataset.pos === S.pos));
   document.getElementById("sortsel").value = S.sort;
   document.getElementById("count").textContent = `${ps.length} players`;
 }
 
 function csv() {
-  const head = ["rank", "name", "pos", "team", "opp", "status", "espn", "expected", "p10", "p25", "median", "p75", "p90", "chance_20plus", "chance_under5", "weather", "spread", "injury", "lines"];
+  const head = ["rank", "name", "pos", "team", "opp", "status", "espn", "expected", "p10", "p25", "median", "p75", "p90", "chance_20plus", "chance_under5", "books", "weather", "spread", "injury", "lines"];
   const ps = shown(), lines = [head.join(",")];
   ps.forEach((p, i) => lines.push([i + 1, `"${p.name.replace(/"/g, '""')}"`, p.pos, p.team, p.opp, p.status === "none" ? "" : p.status, pts(p.proj), pts(p.mean),
-    ...[.1, .25, .5, .75, .9].map(t => pts(qv(p, t))), p.chance.twenty.toFixed(3), p.chance.dud.toFixed(3),
+    ...[.1, .25, .5, .75, .9].map(t => pts(qv(p, t))), p.chance.twenty.toFixed(3), p.chance.dud.toFixed(3), p.books ? pts(p.books.points) : "",
     ...["weather", "spread", "injury", "lines"].map(k => p.effects[k].toFixed(2))].join(",")));
   return lines.join("\n");
 }
@@ -241,6 +257,7 @@ function init() {
       <div><b>ESPN</b> is ESPN's projection, rescored for these rules. It's used as the forecast of each player's average.</div>
       <div><b>Expected</b> = ESPN + context adjustments (weather, betting line, injury report and practice, missing linemen/DBs). Each adjustment is kept only if it beat ESPN on 2019–2025 games. Blue = above ESPN, red = below.</div>
       <div><b>Range</b>: the line spans the 10th to 90th percentile, the box the middle 50%, the solid tick the typical (median) week. The dashed tick is ESPN's number. Medians often sit below ESPN because touchdowns make scoring lopsided.</div>
+      <div><b>Books</b>: the points the sportsbooks' player props imply, scaled to ESPN's slate-wide totals (prop lines are medians, so raw lines run under ESPN's averages). Only for games whose props are in; not a model input.</div>
       <div><b>20+ / Under 5</b>: the chance of a big week or a dud. Click any player for the full distribution and the why.</div>
     </div>
     <div class="controls">

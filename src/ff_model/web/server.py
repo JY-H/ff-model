@@ -62,22 +62,31 @@ class Handler(BaseHTTPRequestHandler):
         q = {k: v[0] for k, v in parse_qs(u.query).items()}
         return u.path, {k: int(v) for k, v in q.items() if v not in ("", "null")}
 
+    @staticmethod
+    def _latest() -> int | None:
+        """The newest snapshot: part of each cache key, so nothing built before it is served after it."""
+        with closing(sqlite3.connect(DB_PATH)) as c:
+            return c.execute("SELECT MAX(id) FROM snapshots").fetchone()[0]
+
     def do_GET(self):
         path, q = self._q()
         try:
             if path in ("/", "/index.html"):
                 return self._send(200, (STATIC / "index.html").read_bytes(), "text/html; charset=utf-8")
             from ..model import report as R
+            if path == "/rankings":  # the shareable rankings page, built from the newest (or chosen) snapshot
+                from ..model import rankings
+                key = ("rankings", q.get("snapshot"), self._latest())
+                with _lock:
+                    if key not in _cache:
+                        _cache[key] = rankings.render(rankings.build(q.get("snapshot")))
+                return self._send(200, _cache[key].encode(), "text/html; charset=utf-8")
             if path == "/api/weeks":
                 return self._json({"weeks": R.weeks_available(),
                                    "teams": [{"id": k, "name": v} for k, v in sorted(R.team_names().items(), key=lambda kv: kv[1].lower())],
                                    "me": R.MY_TEAM_ID})
             if path == "/api/report":
-                # the newest snapshot is part of the key, so a report built before the archiver's
-                # latest snapshot isn't served after it
-                with closing(sqlite3.connect(DB_PATH)) as c:
-                    latest = c.execute("SELECT MAX(id) FROM snapshots").fetchone()[0]
-                key = (q.get("week"), q.get("team"), q.get("snapshot"), latest)
+                key = (q.get("week"), q.get("team"), q.get("snapshot"), self._latest())
                 with _lock:
                     if key not in _cache:
                         _cache[key] = R.build_report(week=key[0], team_id=key[1], snapshot_id=key[2])
@@ -109,6 +118,10 @@ class Handler(BaseHTTPRequestHandler):
                 sid = runner.snapshot(con, runner.current_week(con), with_odds=False)
                 _cache.clear()
                 return self._json({"snapshot_id": sid})
+            if path == "/api/rankings/save":  # write the shareable file to data/share/
+                from ..model import rankings
+                out = rankings.write(q.get("snapshot"))
+                return self._json({"path": str(out), "name": out.name})
             if path == "/api/whatif":  # recompute with overrides; never cached
                 from ..model.report import build_report
                 body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")

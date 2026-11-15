@@ -133,6 +133,7 @@ body { overflow-x: hidden; } .card, #main { min-width: 0; }
   .bar label { width: 100%; display: flex; gap: 8px; align-items: center; } .bar select { flex: 1; min-width: 0; }
   .bar .spacer { display: none; } #fresh { width: 100%; }
 }
+.rk-bar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
 </style>
 </head>
 <body>
@@ -147,7 +148,7 @@ body { overflow-x: hidden; } .card, #main { min-width: 0; }
     <button id="fresh" title="Fetch ESPN projections, injuries and weather now (no odds credits)">Fresh snapshot</button>
   </div>
   <div class="tabs" id="tabs">
-    <button data-tab="matchup" class="on">Weekly Matchup</button><button data-tab="context">Weekly Context</button><button data-tab="review">Weekly Review</button><button data-tab="season">Season Overview</button><button data-tab="trades">Trade Analyzer</button>
+    <button data-tab="matchup" class="on">Weekly Matchup</button><button data-tab="context">Weekly Context</button><button data-tab="review">Weekly Review</button><button data-tab="season">Season Overview</button><button data-tab="trades">Trade Analyzer</button><button data-tab="rankings">Rankings</button>
   </div>
   </header>
   <div id="main"><div class="loading">Loading…</div></div>
@@ -183,7 +184,7 @@ const modelTd = p => p.locked || p.unavailable ? `<td class="num">–</td>`
   : `<td class="num" title="${esc(whyTitle(p))}" style="${tint(p.model_mean - p.proj)}">${pts(p.model_mean)} ${signed(p.model_mean - p.proj)}</td>`;
 const effectTd = d => `<td class="num" style="${tint(d)}">${Math.abs(d) < 0.1 ? "±0" : sgn(d)}</td>`;
 
-const TAB_NAMES = {matchup: "Weekly Matchup", context: "Weekly Context", review: "Weekly Review", season: "Season Overview", trades: "Trade Analyzer"};
+const TAB_NAMES = {matchup: "Weekly Matchup", context: "Weekly Context", review: "Weekly Review", season: "Season Overview", trades: "Trade Analyzer", rankings: "Rankings"};
 function setHeader(sub) { $("#title").textContent = TAB_NAMES[S.tab]; $("#subtitle").innerHTML = sub;
   document.title = `${TAB_NAMES[S.tab]} · FFModel`; }
 const S = {weeks: [], teams: [], me: null, week: null, team: null, snapshot: null, tab: "matchup", report: null,
@@ -216,8 +217,10 @@ function syncControls() {
   if (S.snapshot) $("#snap").value = S.snapshot;
   document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === S.tab));
   const allWeeks = S.tab === "season" || S.tab === "trades";  // these views cover every week
-  $("#week").parentElement.style.display = allWeeks ? "none" : "";
-  if (allWeeks) { $("#snapwrap").style.display = "none"; $("#fresh").style.display = "none"; }
+  const pool = S.tab === "rankings";  // every player in this week's pool, no league or team
+  $("#week").parentElement.style.display = allWeeks || pool ? "none" : "";
+  $("#team").parentElement.style.display = pool ? "none" : "";
+  if (allWeeks || pool) { $("#snapwrap").style.display = "none"; $("#fresh").style.display = "none"; }
 }
 $("#week").onchange = e => { S.week = +e.target.value; S.snapshot = null; resetOverrides(); syncControls(); route(); };
 $("#team").onchange = e => { S.team = +e.target.value; resetOverrides(); route(); };
@@ -249,6 +252,8 @@ async function route() {
     } else if (S.tab === "trades") {
       main.innerHTML = `<div class="loading">Replaying each trade week by week…</div>`;
       renderTrades(await getJSON("/api/trades?" + qs()));
+    } else if (S.tab === "rankings") {
+      renderRankings();
     } else if (S.tab === "review") {
       main.innerHTML = `<div class="loading">Splitting each result into role and luck…</div>`;
       renderReview(await getJSON("/api/review?" + qs()));
@@ -915,6 +920,26 @@ function leagueTrades(rows, me) {
     </table></div>
     <p class="small muted">Highlighted rows involve ${esc(me)}. A trade's window ends when a team trades its incoming players on.</p>`;
 }
+// The shareable rankings page, as it will look to others (no league details), in a frame sized to its content
+function renderRankings() {
+  setHeader(`Every player in this week's pool · the same page as the shareable link`);
+  $("#main").innerHTML = `
+    <div class="rk-bar"><p class="intro" style="margin:0">League-free: no rosters, team names or IDs. <b>Save shareable copy</b> writes it to
+      <code>data/share/</code>; to update the published link, ask Claude to republish that file.</p>
+      <span class="spacer"></span><span id="rk-msg" class="small muted"></span><button id="rk-save">Save shareable copy</button></div>
+    <div class="loading" id="rk-load">Building rankings for every player…</div>
+    <iframe id="rk" src="/rankings" title="Player rankings" style="width:100%;border:0;display:block;min-height:400px;visibility:hidden"></iframe>`;
+  const f = $("#rk");
+  f.onload = () => {
+    $("#rk-load").remove(); f.style.visibility = "";
+    const body = f.contentDocument.body, fit = () => { f.style.height = body.scrollHeight + "px"; };
+    new ResizeObserver(fit).observe(body); fit();
+  };
+  $("#rk-save").onclick = async () => { const b = $("#rk-save"); b.disabled = true;
+    try { const r = await getJSON("/api/rankings/save", {method: "POST"}); $("#rk-msg").textContent = `Saved ${r.name}`; }
+    catch (e) { $("#rk-msg").textContent = e.message; } finally { b.disabled = false; } };
+}
+
 function renderTrades(d) {
   const ts = d.trades, tot = d.totals;
   setHeader(`${esc(d.team.name)} · ${ts.length} of the league's ${d.league.length} trade${d.league.length === 1 ? "" : "s"}`);
