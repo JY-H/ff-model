@@ -117,7 +117,8 @@ def _books_summary(players: list[dict], rules: dict) -> dict:
             delta += (adj - x["espn"]) * (6 if x["sid"] is None else rules.get(x["sid"], (0, 0))[0])
             stats.append({"stat": x["stat"], "espn": round(x["espn"], 2), "book": round(adj, 2), "raw": round(x["book"], 2),
                           **({"chance": round(x["chance"], 3)} if "chance" in x else {})})
-        p["books"] = {"points": round(p["proj"] + delta, 2), "stats": stats} if stats else None
+        p["books"] = {"points": round(p["proj"] + delta, 2), "stats": stats, "as_of": p.pop("_props_at")} if stats else None
+        p.pop("_props_at", None)
     return {k: round(v, 3) for k, v in sorted(ratio.items())}
 
 
@@ -179,7 +180,9 @@ def build(snapshot_id: int | None = None) -> dict:
                                                  f"{vt[0]:.0%} of the team's targets and {vt[1]:.0%} of its carries are vacated.",
                                                  "Not a model input: ESPN's projection already moves for this."],
                                      "evidence": [e for e in [_ev("teammate targets vacated", r["pos"], grp)] if e]})
-        p["books"] = _books(_props(con, sid, r["name"]), statlines.get(r["player_id"]) or {}, r["pos"])
+        props = _props(con, sid, r["name"])
+        p["books"] = _books(props, statlines.get(r["player_id"]) or {}, r["pos"])
+        p["_props_at"] = props[0]["as_of"] if props else None
         for k in ("roof", "wind", "temp", "gust", "precip_prob", "ol_out", "opp_ol_out", "opp_db_out",
                   "td_share", "rec_share", "games_back"):
             p.pop(k)

@@ -91,7 +91,7 @@ To archive automatically, `ff-archive install-launchd` writes a macOS LaunchAgen
                          ┌───────── snapshots at scheduled slots, ~8-10 a week (see Snapshot slots) ──────────┐
                          │                                                                                    │
  ESPN fantasy API ───────┤  player pool, rosters & matchups every slot; settings, transactions, trades Tue    │
- The Odds API ───────────┤  game lines every slot; player props once per game (all Sunday 1 & 4 pm at 11:45)  │
+ The Odds API ───────────┤  game lines every slot; player props once per game (Sun-Mon games at Sun 11:45)    │
  Open-Meteo ─────────────┤  kickoff-window forecasts for outdoor games, every slot                            │
  nflverse ───────────────┤  this week's injury report with practice participation, every slot                 │
                          └────────────────────────────────────┬───────────────────────────────────────────────┘
@@ -138,7 +138,7 @@ Three properties hold everywhere:
 | Wed | 12:00 | after Wednesday waivers |
 | Sat | 22:00 | final injury reports are out |
 | Sun early | 11:45 | after inactives, before 1 pm kickoffs |
-| Sun late | 15:55 | before 4 pm kickoffs (their props were pulled at 11:45) |
+| Sun late | 15:55 | before 4 pm kickoffs (props already pulled at 11:45) |
 | International | 90 min before kickoff | |
 | Every other kickoff (Thu, Sun night, Mon, Sat) | 60 min before kickoff | late swap: lineups lock per game |
 
@@ -153,7 +153,7 @@ Each snapshot saves:
 ### Odds budget
 
 - Game lines: 2 credits per call (spreads + totals), every slot.
-- Player props: 1 credit per market per game, pulled once per game at the last slot before it locks, except the Sunday 4 pm games, whose props come with the 1 pm games' at 11:45 so start/sit calls made before 1 pm can use them. Markets in priority order: anytime TD, receptions, receiving yards, rushing yards, passing yards. A planner drops markets from the end of the list if the rest of the month can't be covered.
+- Player props: 1 credit per market per game, pulled once per game: at the last slot before it for Thursday, Saturday and international games, and at Sun 11:45 for every game from Sunday 1 pm through Monday night, so start/sit calls made before 1 pm can use them. Pages show when each player's props were pulled and how long before kickoff. Markets in priority order: anytime TD, receptions, receiving yards, rushing yards, passing yards. A planner drops markets from the end of the list if the rest of the month can't be covered.
 - No calls below 40 credits remaining. The quota is assumed to reset on the 1st.
 
 ### Tables

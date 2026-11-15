@@ -96,6 +96,10 @@ const pct = v => v == null ? "–" : v < 0.005 ? "<1%" : v > 0.995 ? ">99%" : Ma
 const sgn = v => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(1);
 const tint = (d, scale = 2.5) => d == null || Math.abs(d) < 0.1 ? "" :
   `background: color-mix(in srgb, ${d > 0 ? "var(--up)" : "var(--down)"} ${Math.round(12 + 33 * Math.min(1, Math.abs(d) / scale))}%, transparent);`;
+const propsAge = (asOf, kickoff) => { if (!asOf) return ""; const a = new Date(asOf), k = kickoff ? new Date(kickoff) : null;
+  const h = k ? (k - a) / 36e5 : null;
+  return `Pulled ${a.toLocaleString([], {weekday: "short", hour: "numeric", minute: "2-digit"})}` +
+    (h == null ? "" : h > 0 ? `, ${h < 10 ? h.toFixed(1) : Math.round(h)} h before kickoff` : ", after kickoff"); };
 const qv = (p, t) => p.q[I(t)];
 const bookGap = p => p.books ? p.books.points - p.proj : null;
 const val = (p, k) => k === "books" ? bookGap(p) : k === "mean" ? p.mean : k === "proj" ? p.proj : k === "twenty" ? p.chance.twenty : k === "dud" ? p.chance.dud : qv(p, +k.slice(1) / 100);
@@ -165,6 +169,7 @@ function detail(p) {
   const sl = Object.entries(p.statline);
   const statFmt = (x, v) => x.stat === "TDs" ? v.toFixed(2) : x.stat.endsWith("yds") ? Math.round(v) : v.toFixed(1);
   const books = p.books ? `<div class="pcard"><div class="ptitle">Sportsbook props vs ESPN</div>
+      <div class="small muted" style="margin:-2px 0 6px">${propsAge(p.books.as_of, p.kickoff)}</div>
       <div style="font-size:13.5px">Books imply about <b>${pts(p.books.points)}</b> vs ESPN's ${pts(p.proj)}
         <span class="eff" style="padding:0 6px;border-radius:6px;${tint(bookGap(p))}">${sgn(bookGap(p))}</span></div>
       <table class="bk"><thead><tr><th></th><th class="num">ESPN</th><th class="num">Books</th><th class="num">Diff</th></tr></thead><tbody>
@@ -213,7 +218,7 @@ function render() {
         <div class="sub">${esc(p.pos)} · ${esc(p.team)} vs ${esc(p.opp)}<span class="hide-sm"> · ${kick(p)}</span></div></td>
       <td class="num">${pts(p.proj)}</td>
       <td class="num" style="${tint(d)}">${pts(p.mean)}<span class="dsmall">${Math.abs(d) < 0.1 ? "±0" : sgn(d)}</span></td>
-      <td class="num hide-sm" ${p.books ? `style="${tint(bookGap(p), 4)}"` : ""}>${p.books ? pts(p.books.points) + `<span class="dsmall">${Math.abs(bookGap(p)) < 0.1 ? "±0" : sgn(bookGap(p))}</span>` : `<span class="muted">–</span>`}</td>
+      <td class="num hide-sm" ${p.books ? `style="${tint(bookGap(p), 4)}" title="${esc(propsAge(p.books.as_of, p.kickoff))}"` : ""}>${p.books ? pts(p.books.points) + `<span class="dsmall">${Math.abs(bookGap(p)) < 0.1 ? "±0" : sgn(bookGap(p))}</span>` : `<span class="muted">–</span>`}</td>
       <td class="rng">${rangeSvg(p, lo, hi)}</td>
       <td class="num hide-sm">${pts(qv(p, .1))}–${pts(qv(p, .9))}</td>
       <td class="num hide-sm">${pct(p.chance.twenty)}</td>

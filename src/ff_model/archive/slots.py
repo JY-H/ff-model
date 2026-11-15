@@ -6,9 +6,11 @@ Fixed slots each week (ET):
   sat      Sat 22:00
 Kickoff-relative slots, one per distinct kickoff time:
   Sunday 1pm window          Sun 11:45 (after inactives)
-  Sunday 4pm window          Sun 15:55 (its props are pulled at 11:45, with the 1pm games')
+  Sunday 4pm window          Sun 15:55
   Sunday before noon (intl)  kickoff - 90 min
   anything else (TNF, SNF, MNF, Sat/Fri games)   kickoff - 60 min
+Props are pulled once per game, at the last slot before it, except that Sun 11:45 pulls every
+game from Sunday 1pm on (4pm, night, Monday), so calls made before 1pm can use them.
 """
 from __future__ import annotations
 
@@ -57,11 +59,12 @@ def week_slots(week: int, kickoffs: list[datetime]) -> list[Slot]:
         add(at, f"{at:%a_%H%M}".lower(), why, k)
         covers[at] = max(covers.get(at, k), k)
 
-    # late Sunday games' props come with the early games' at 11:45, so start/sit calls made before
-    # 1 PM can use them; 15:55 still refreshes ESPN, injuries, game lines and weather
-    sun = {(at.hour, at.minute): at for at in covers if at.weekday() == 6}
-    if (11, 45) in sun and (15, 55) in sun:
-        covers[sun[11, 45]] = covers.pop(sun[15, 55])
+    # props for every game from Sunday 1 pm on (late, night, Monday) come at 11:45, so start/sit
+    # calls made before 1 pm can use them; later slots still refresh ESPN, injuries, lines and weather
+    early = next((at for at in covers if at.weekday() == 6 and (at.hour, at.minute) == (11, 45)), None)
+    if early:
+        for at in [a for a in covers if a > early]:
+            covers[early] = max(covers[early], covers.pop(at))
 
     add(_at(tue, 12, 0), "tue", "start of week + last week's finals", last)
     add(_at(tue + timedelta(days=1), 12, 0), "wed", "after Wednesday waivers", last)

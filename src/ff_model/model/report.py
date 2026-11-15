@@ -258,6 +258,7 @@ def _props(con, sid: int | None, name: str) -> list[dict]:
         return []
     rows = con.execute("SELECT market, outcome, point, price FROM prop_lines WHERE snapshot_id=? AND player_name IN (?,?)",
                        (psid, *names)).fetchall()
+    as_of = con.execute("SELECT started_at FROM snapshots WHERE id=?", (psid,)).fetchone()[0]  # when they were pulled
     by: dict[tuple, list] = {}
     for m, o, pt, pr in rows:
         by.setdefault((m, o, pt), []).append(pr)
@@ -267,7 +268,7 @@ def _props(con, sid: int | None, name: str) -> list[dict]:
     out = []
     for (m, o, pt), prices in sorted(by.items()):
         out.append({"market": m.replace("player_", "").replace("_", " "), "outcome": o, "line": pt,
-                    "implied": float(np.median([implied(x) for x in prices])), "books": len(prices)})
+                    "implied": float(np.median([implied(x) for x in prices])), "books": len(prices), "as_of": as_of})
     return out
 
 
