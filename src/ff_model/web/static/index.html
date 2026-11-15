@@ -133,7 +133,6 @@ body { overflow-x: hidden; } .card, #main { min-width: 0; }
   .bar label { width: 100%; display: flex; gap: 8px; align-items: center; } .bar select { flex: 1; min-width: 0; }
   .bar .spacer { display: none; } #fresh { width: 100%; }
 }
-.rk-bar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
 </style>
 </head>
 <body>
@@ -922,11 +921,8 @@ function leagueTrades(rows, me) {
 }
 // The shareable rankings page, as it will look to others (no league details), in a frame sized to its content
 function renderRankings() {
-  setHeader(`Every player in this week's pool · the same page as the shareable link`);
+  setHeader(`Every player in this week's pool · league-free, the same page as the shareable link`);
   $("#main").innerHTML = `
-    <div class="rk-bar"><p class="intro" style="margin:0">League-free: no rosters, team names or IDs. <b>Save shareable copy</b> writes it to
-      <code>data/share/</code>; to update the published link, ask Claude to republish that file.</p>
-      <span class="spacer"></span><span id="rk-msg" class="small muted"></span><button id="rk-save">Save shareable copy</button></div>
     <div class="loading" id="rk-load">Building rankings for every player…</div>
     <iframe id="rk" src="/rankings" title="Player rankings" style="width:100%;border:0;display:block;min-height:400px;visibility:hidden"></iframe>`;
   const f = $("#rk");
@@ -935,9 +931,6 @@ function renderRankings() {
     const body = f.contentDocument.body, fit = () => { f.style.height = body.scrollHeight + "px"; };
     new ResizeObserver(fit).observe(body); fit();
   };
-  $("#rk-save").onclick = async () => { const b = $("#rk-save"); b.disabled = true;
-    try { const r = await getJSON("/api/rankings/save", {method: "POST"}); $("#rk-msg").textContent = `Saved ${r.name}`; }
-    catch (e) { $("#rk-msg").textContent = e.message; } finally { b.disabled = false; } };
 }
 
 function renderTrades(d) {

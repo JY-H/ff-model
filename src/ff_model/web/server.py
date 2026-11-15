@@ -118,10 +118,6 @@ class Handler(BaseHTTPRequestHandler):
                 sid = runner.snapshot(con, runner.current_week(con), with_odds=False)
                 _cache.clear()
                 return self._json({"snapshot_id": sid})
-            if path == "/api/rankings/save":  # write the shareable file to data/share/
-                from ..model import rankings
-                out = rankings.write(q.get("snapshot"))
-                return self._json({"path": str(out), "name": out.name})
             if path == "/api/whatif":  # recompute with overrides; never cached
                 from ..model.report import build_report
                 body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
