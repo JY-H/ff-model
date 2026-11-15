@@ -15,13 +15,16 @@ from __future__ import annotations
 import json
 import logging
 import math
+import sqlite3
 import threading
 import traceback
 import webbrowser
+from contextlib import closing
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from ..config import DB_PATH
 from ..db import connect
 
 log = logging.getLogger("ff_model")
@@ -70,7 +73,11 @@ class Handler(BaseHTTPRequestHandler):
                                    "teams": [{"id": k, "name": v} for k, v in sorted(R.team_names().items(), key=lambda kv: kv[1].lower())],
                                    "me": R.MY_TEAM_ID})
             if path == "/api/report":
-                key = (q.get("week"), q.get("team"), q.get("snapshot"))
+                # the newest snapshot is part of the key, so a report built before the archiver's
+                # latest snapshot isn't served after it
+                with closing(sqlite3.connect(DB_PATH)) as c:
+                    latest = c.execute("SELECT MAX(id) FROM snapshots").fetchone()[0]
+                key = (q.get("week"), q.get("team"), q.get("snapshot"), latest)
                 with _lock:
                     if key not in _cache:
                         _cache[key] = R.build_report(week=key[0], team_id=key[1], snapshot_id=key[2])

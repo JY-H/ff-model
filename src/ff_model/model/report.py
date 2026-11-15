@@ -10,6 +10,7 @@ Any team can be the "me" side.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -248,11 +249,15 @@ def _shape_text(p: dict, shape: float) -> str:
 def _props(con, sid: int | None, name: str) -> list[dict]:
     if not sid:
         return []
-    psid = con.execute("SELECT MAX(snapshot_id) FROM prop_lines WHERE snapshot_id <= ?", (sid,)).fetchone()[0]
+    # books usually drop the suffix ESPN keeps ("James Cook III" -> "James Cook")
+    names = (name, re.sub(r"\s+(Jr\.?|Sr\.?|II|III|IV|V)$", "", name))
+    # each game's props are pulled once, at its last slot before lock: use this player's latest pull
+    psid = con.execute("SELECT MAX(snapshot_id) FROM prop_lines WHERE snapshot_id <= ? AND player_name IN (?,?)",
+                       (sid, *names)).fetchone()[0]
     if not psid:
         return []
-    rows = con.execute("SELECT market, outcome, point, price FROM prop_lines WHERE snapshot_id=? AND player_name=?",
-                       (psid, name)).fetchall()
+    rows = con.execute("SELECT market, outcome, point, price FROM prop_lines WHERE snapshot_id=? AND player_name IN (?,?)",
+                       (psid, *names)).fetchall()
     by: dict[tuple, list] = {}
     for m, o, pt, pr in rows:
         by.setdefault((m, o, pt), []).append(pr)
