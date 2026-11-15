@@ -68,14 +68,14 @@ Saves the data that disappears if it isn't captured at the time. launchd runs `t
 | Wed | 12:00, after Wednesday waivers |
 | Sat | 22:00 |
 | Sun early games | 11:45, after inactives |
-| Sun late games | 15:55 |
+| Sun late games | 15:55 (props already pulled at 11:45) |
 | International games | 90 min before kickoff |
 | Every other kickoff (Thu, Sun night, Mon, Sat) | 60 min before kickoff |
 
 **Odds budget:**
 
 - Game lines cost 2 credits per call (spreads + totals), at every slot.
-- Player props cost 1 credit per market per game. Each game is pulled once, at the last slot before it locks.
+- Player props cost 1 credit per market per game. Each game is pulled once, at the last slot before it locks, except Sunday's 4 pm games: their props come at 11:45 with the 1 pm games', so pre-1 pm start/sit calls can use them (same credits; 15:55 still refreshes ESPN, lines and weather).
 - Prop markets in priority order: anytime TD, receptions, receiving yards, rushing yards, passing yards. A planner drops markets from the end of that list if the rest of the month can't be covered.
 - No calls below 40 credits remaining. The quota is assumed to reset on the 1st.
 

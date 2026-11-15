@@ -6,7 +6,7 @@ Fixed slots each week (ET):
   sat      Sat 22:00
 Kickoff-relative slots, one per distinct kickoff time:
   Sunday 1pm window          Sun 11:45 (after inactives)
-  Sunday 4pm window          Sun 15:55
+  Sunday 4pm window          Sun 15:55 (its props are pulled at 11:45, with the 1pm games')
   Sunday before noon (intl)  kickoff - 90 min
   anything else (TNF, SNF, MNF, Sat/Fri games)   kickoff - 60 min
 """
@@ -25,7 +25,7 @@ class Slot:
     at: datetime        # tz-aware ET
     deadline: datetime  # don't run after this (the lock it serves, or next slot)
     reason: str
-    last_kick: datetime | None = None  # latest kickoff this slot is the final run before
+    last_kick: datetime | None = None  # latest kickoff this slot pulls props for
 
 
 def _at(day: datetime, hh: int, mm: int) -> datetime:
@@ -56,6 +56,12 @@ def week_slots(week: int, kickoffs: list[datetime]) -> list[Slot]:
             at, why = k - timedelta(minutes=60), f"60 min before {k:%a %H:%M} kickoff"
         add(at, f"{at:%a_%H%M}".lower(), why, k)
         covers[at] = max(covers.get(at, k), k)
+
+    # late Sunday games' props come with the early games' at 11:45, so start/sit calls made before
+    # 1 PM can use them; 15:55 still refreshes ESPN, injuries, game lines and weather
+    sun = {(at.hour, at.minute): at for at in covers if at.weekday() == 6}
+    if (11, 45) in sun and (15, 55) in sun:
+        covers[sun[11, 45]] = covers.pop(sun[15, 55])
 
     add(_at(tue, 12, 0), "tue", "start of week + last week's finals", last)
     add(_at(tue + timedelta(days=1), 12, 0), "wed", "after Wednesday waivers", last)
