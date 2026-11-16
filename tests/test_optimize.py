@@ -1,7 +1,7 @@
 import numpy as np
 import polars as pl
 
-from ff_model.model.optimize import _enumerate, score_lineups
+from ff_model.model.optimize import _enumerate, decide, score_lineups
 
 COUNTS = {"QB": 1, "RB": 2, "WR": 2, "TE": 1, "FLEX": 1, "K": 1, "D/ST": 1}
 
@@ -40,3 +40,14 @@ def test_short_roster_gets_an_empty_slot_not_no_lineup():
     free = pl.DataFrame({"player_id": [1, 2, 3, 4, 5, 6, 7, 8], "pos": ["QB", "RB", "RB", "WR", "WR", "WR", "TE", "D/ST"]})
     lus = _enumerate(free, COUNTS)   # no kicker available
     assert lus and all(any(s == "K" and isinstance(p, str) for s, p in lu) for lu in lus)
+
+
+def test_every_game_started_means_nothing_to_simulate():
+    # late in the week every starter on both sides is locked: the result is the locked points
+    pos = ["QB", "RB", "RB", "WR", "WR", "TE", "WR", "K", "D/ST"]
+    side = lambda base, pts: pl.DataFrame({  # noqa: E731
+        "player_id": [base + i for i in range(9)], "pos": pos, "proj": [10.0] * 9, "slot": [0, 2, 2, 4, 4, 6, 23, 17, 16],
+        "locked": [True] * 9, "unavailable": [False] * 9, "actual": [pts] * 9, "game": ["g"] * 9,
+        "role": ["x"] * 9, "team": ["A"] * 9, "opp": ["B"] * 9})
+    d = decide(side(0, 12.0), side(100, 10.0), {}, COUNTS, {}, n=100)
+    assert d.fixed_me == 108.0 and float(d.opp_total.mean()) == 90.0 and d.pwin[d.best] == 1.0

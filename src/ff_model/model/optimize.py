@@ -159,8 +159,9 @@ def decide(me: pl.DataFrame, opp_start: pl.DataFrame, q_of: dict[int, np.ndarray
     sim = pl.concat([free, opp_start.filter(~pl.col("locked"))], how="diagonal_relaxed").unique("player_id").sort("player_id")
     col = {p: i for i, p in enumerate(sim["player_id"])}
     sides = [0 if t == min(t, o) else 1 for t, o in zip(sim["team"].to_list(), sim["opp"].fill_null("").to_list())]
+    # nobody left to simulate (every game in the matchup has started): the result is the locked points
     D = draw(np.array([q_of[p] for p in sim["player_id"]]), sim["game"].to_list(), sim["role"].to_list(), sides, corr,
-             n=n, rng=np.random.default_rng(seed))
+             n=n, rng=np.random.default_rng(seed)) if sim.height else np.zeros((n, 0))
     fixed_me = float(my_locked["actual"].fill_null(0).sum())
     opp_total = float(opp_start.filter(pl.col("locked"))["actual"].fill_null(0).sum()) + \
         D[:, [col[p] for p in opp_start.filter(~pl.col("locked"))["player_id"]]].sum(axis=1)
