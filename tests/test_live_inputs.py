@@ -83,3 +83,16 @@ def test_build_inputs_keeps_every_rostered_player():
     rostered = {r[0] for r in con.execute("SELECT player_id FROM player_snapshots WHERE league_id=? AND snapshot_id=? AND on_team_id > 0",
                                                           (LEAGUE_ID, sid))}
     assert rostered <= set(df["player_id"].to_list())
+
+
+@pytest.mark.skipif(not (NFLVERSE_DIR / "rosters_weekly" / "2026.parquet").exists(), reason="no nflverse 2026")
+def test_context_columns_keep_their_types_when_empty():
+    # Tuesday: no injury report yet; Sunday night: no outdoor game left. All-null columns must stay typed.
+    from ff_model.config import DB_PATH
+    from ff_model.model.live import CONTEXT_TYPES, build_inputs
+    from ff_model.model.marginals import neutralize
+    if not DB_PATH.exists():
+        pytest.skip("no archive")
+    df = build_inputs()
+    assert {c: df.schema[c] for c in CONTEXT_TYPES} == CONTEXT_TYPES
+    neutralize(df)

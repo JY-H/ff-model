@@ -25,6 +25,10 @@ from ..research.projection_errors import POS
 from .marginals import MODEL_PATH, TAUS, Marginals, espn_context_quantiles
 
 # Odds API full names -> nflverse abbreviations
+CONTEXT_TYPES = {"roof": pl.String, "temp": pl.Float64, "wind": pl.Float64, "exp_margin": pl.Float64,
+                 "practice_status": pl.String, "injury": pl.String, "games_back": pl.Int64,
+                 "ol_out": pl.Int64, "opp_ol_out": pl.Int64, "opp_db_out": pl.Int64}
+
 TEAM_NAMES = {
     "Arizona Cardinals": "ARI", "Atlanta Falcons": "ATL", "Baltimore Ravens": "BAL", "Buffalo Bills": "BUF",
     "Carolina Panthers": "CAR", "Chicago Bears": "CHI", "Cincinnati Bengals": "CIN", "Cleveland Browns": "CLE",
@@ -125,10 +129,10 @@ def build_inputs(snapshot_id: int | None = None) -> pl.DataFrame:
         line = starters_out([SEASON], extra_injuries=rep, asof_week=week).filter(pl.col("week") == week)
         df = _add_line_injuries(df, [SEASON], line=line)
 
-    for c in ["roof", "temp", "wind", "exp_margin", "practice_status", "injury", "games_back",
-              "ol_out", "opp_ol_out", "opp_db_out"]:
-        if c not in df.columns:
-            df = df.with_columns(pl.lit(None).alias(c))
+    # fixed types: early in the week (no injury report yet) or late (no outdoor game left) a column
+    # can be empty for every player, and an all-null column can't take the neutral values later
+    for c, t in CONTEXT_TYPES.items():
+        df = df.with_columns((pl.col(c) if c in df.columns else pl.lit(None)).cast(t).alias(c))
     return df.with_columns(pl.lit(snapshot_id).alias("snapshot_id"))
 
 
