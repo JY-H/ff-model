@@ -63,9 +63,10 @@ def weeks_available() -> list[dict]:
     replay = {r[0] for r in con.execute("SELECT DISTINCT scoring_period FROM lineups WHERE league_id=? AND actual_points IS NOT NULL",
                                         (LEAGUE_ID,))}
     hist = {int(p.stem[1:3]) for p in (DATA_DIR / "espn_history" / str(SEASON)).glob("w*-p0.json.gz")}
+    final = _final_weeks(con)
     weeks = []
     for w in sorted((replay & hist) | set(live)):
-        weeks.append({"week": w, "source": "live" if w in live else "replay", "snapshots": live.get(w, [])})
+        weeks.append({"week": w, "source": "live" if w in live else "replay", "snapshots": live.get(w, []), "final": w in final})
     return weeks
 
 
@@ -75,6 +76,16 @@ def team_names(con=None, sid: int | None = None) -> dict[int, str]:
                       + (" AND snapshot_id<=?" if sid else "") + " ORDER BY id DESC LIMIT 1",
                       (LEAGUE_ID, sid) if sid else (LEAGUE_ID,)).fetchone()
     return {t["id"]: (t.get("name") or f"Team {t['id']}").strip() for t in load_raw(row)["teams"]}
+
+
+def _final_weeks(con) -> set[int]:
+    from .backtest import final_weeks
+    return final_weeks(con)
+
+
+def _final_rosters(con, week: int) -> pl.DataFrame:
+    from .backtest import _final_rosters as fr
+    return fr(con, week)
 
 
 @lru_cache(maxsize=1)
@@ -110,12 +121,14 @@ def _inputs(week: int | None, snapshot_id: int | None):
         mus = con.execute("SELECT home_team_id, away_team_id FROM matchups WHERE league_id=? AND snapshot_id=? AND matchup_period=?",
                           (LEAGUE_ID, sid, week)).fetchall()
         opp = {h: a for h, a in mus} | {a: h for h, a in mus}
-        ros = pl.DataFrame([dict(team_id=r[0], player_id=r[1], slot=r[2], actual=r[3], final=None,
+        # a finished week also carries each player's final points (from the Tuesday finals)
+        fin = dict(zip(*_final_rosters(con, week).select("player_id", "actual"))) if week in _final_weeks(con) else {}
+        ros = pl.DataFrame([dict(team_id=r[0], player_id=r[1], slot=r[2], actual=r[3], final=fin.get(r[1]),
                                  opp_team_id=opp.get(r[0])) for r in rows])
         stat = {r[0]: json.loads(r[1] or "{}") for r in con.execute(
             "SELECT player_id, proj_stats_json FROM player_snapshots WHERE league_id=? AND snapshot_id=?", (LEAGUE_ID, sid))}
         return "live", sid, week, taken, C.assign_roles(pool), ros, stat
-    from .backtest import _decision_time, _final_rosters
+    from .backtest import _decision_time
     f = _replay_frame().filter(pl.col("week") == week)
     pool = f.select(
         pl.col("espn_id").alias("player_id"), "name", "pos", "proj", "team", "opp", "season", "week",
@@ -252,8 +265,10 @@ def _props(con, sid: int | None, name: str) -> list[dict]:
     # books usually drop the suffix ESPN keeps ("James Cook III" -> "James Cook")
     names = (name, re.sub(r"\s+(Jr\.?|Sr\.?|II|III|IV|V)$", "", name))
     # each game's props are pulled once, at its last slot before lock: use this player's latest pull
-    psid = con.execute("SELECT MAX(snapshot_id) FROM prop_lines WHERE snapshot_id <= ? AND player_name IN (?,?)",
-                       (sid, *names)).fetchone()[0]
+    # ...from this week only: last week's lines say nothing about this week's game
+    psid = con.execute("SELECT MAX(snapshot_id) FROM prop_lines WHERE snapshot_id <= ? AND player_name IN (?,?)"
+                       " AND snapshot_id IN (SELECT id FROM snapshots WHERE week=(SELECT week FROM snapshots WHERE id=?))",
+                       (sid, *names, sid)).fetchone()[0]
     if not psid:
         return []
     rows = con.execute("SELECT market, outcome, point, price FROM prop_lines WHERE snapshot_id=? AND player_name IN (?,?)",
@@ -633,7 +648,20 @@ def build_report(week: int | None = None, team_id: int | None = None, snapshot_i
             return locked_pts + sum(fin.get(p) or 0.0 for p in ids)
         unlocked_actual = set(mine.filter(~pl.col("slot").is_in([BENCH, IR]) & ~pl.col("locked"))["player_id"])
         outcome = {"opponent": opp_final, "model": realized(best_ids), "max_proj": realized(mp_ids),
-                   "actual": realized(unlocked_actual)}
+                   "actual": realized(unlocked_actual), "p_win_actual": pwin_of(unlocked_actual)}
+    elif week in _final_weeks(con):
+        # a finished live week: score this snapshot's choices on the final results; "actual" is the
+        # lineup the team ended up starting, which can differ from the one set at this snapshot
+        fr = _final_rosters(con, week)
+        fin = dict(zip(fr["player_id"], fr["actual"]))
+        started = fr.filter(~pl.col("slot").is_in([BENCH, IR]))
+        locked_pts = sum(fin.get(p, 0.0) for p in mine.filter(pl.col("locked") & ~pl.col("slot").is_in([BENCH, IR]))["player_id"])
+        final_ids = set(started.filter(pl.col("team_id") == me_id)["player_id"])
+        outcome = {"opponent": float(started.filter(pl.col("team_id") == opp_id)["actual"].sum()),
+                   "model": locked_pts + sum(fin.get(p, 0.0) for p in best_ids),
+                   "max_proj": locked_pts + sum(fin.get(p, 0.0) for p in mp_ids),
+                   "actual": sum(fin.get(p, 0.0) for p in final_ids),
+                   "p_win_actual": pwin_of(final_ids - set(locked_rows["player_id"])), "differs": best_ids != mp_ids}
     return {
         "source": source, "snapshot_id": sid, "week": week, "decision_time": taken.isoformat(),
         "freshness": _freshness(con, sid) if sid else {"replay": "ESPN projections + nflverse context as of Sunday 11:45 ET"},
@@ -745,4 +773,34 @@ def season_tracking(team_id: int | None = None) -> dict:
                          "actual_points": x["actual_points"], "opp_points": x["opp_points"],
                          "model_pwin": x["model_pwin"], "actual_pwin": x["actual_pwin"], "differs": x["model_differs"],
                          "won": x["actual_win"] == 1, "model_would_win": x["model_win"] == 1})
+    # live weeks once their finals are in: the model's pick at that week's Sunday 11:45 snapshot (the
+    # replay's decision time), scored on the final results
+    con = _con()
+    done = {r["week"] for r in rows}
+    for w in sorted(_final_weeks(con) - done):
+        sid = _decision_snapshot(con, w)
+        if not sid:
+            continue
+        r = build_report(week=w, team_id=me, snapshot_id=sid)
+        o = r["outcome"]
+        if not o:
+            continue
+        rows.append({"week": w, "opponent": r["opponent"]["name"], "source": "live", "snapshot_id": sid,
+                     "model_points": o["model"], "maxproj_points": o["max_proj"], "actual_points": o["actual"],
+                     "opp_points": o["opponent"], "model_pwin": r["p_win"], "actual_pwin": o["p_win_actual"],
+                     "differs": o["differs"],
+                     "won": o["actual"] > o["opponent"], "model_would_win": o["model"] > o["opponent"]})
     return {"team": {"id": me, "name": names.get(me)}, "weeks": rows}
+
+
+def _decision_snapshot(con, week: int) -> int | None:
+    """The week's Sunday 11:45 slot snapshot, or the latest one taken before that time."""
+    r = con.execute("SELECT id FROM snapshots WHERE slot_key=? AND status IN ('ok','partial')",
+                    (f"{SEASON}-w{week:02d}-sun_1145",)).fetchone()
+    if r:
+        return r[0]
+    from .backtest import _decision_time
+    r = con.execute("SELECT MAX(id) FROM snapshots WHERE week=? AND status IN ('ok','partial') AND started_at <= ?"
+                    " AND (slot_key IS NULL OR slot_key NOT LIKE '%backfill')",
+                    (week, _decision_time(con, week).astimezone(timezone.utc).isoformat())).fetchone()
+    return r[0] if r else None

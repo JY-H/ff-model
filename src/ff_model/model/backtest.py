@@ -46,6 +46,15 @@ def _team_kickoffs(con) -> pl.DataFrame:
         pl.col("week").cast(pl.Int64), pl.col("kickoff_utc").str.to_datetime(time_zone="UTC"))
 
 
+def final_weeks(con) -> set[int]:
+    """Weeks whose final lineups and points are archived: a next-week Tuesday snapshot or a backfill."""
+    return {r[0] for r in con.execute(
+        "SELECT DISTINCT l.scoring_period FROM lineups l JOIN snapshots s ON s.id = l.snapshot_id"
+        " WHERE l.league_id=? AND l.actual_points IS NOT NULL AND (s.week = l.scoring_period + 1 OR s.slot_key LIKE '%backfill')"
+        " AND EXISTS (SELECT 1 FROM raw_responses r WHERE r.snapshot_id = s.id AND r.kind='prev_week' AND r.status_code=200)",
+        (LEAGUE_ID,))}
+
+
 def _final_rosters(con, week: int) -> pl.DataFrame:
     """Locked lineups and final points for every team (latest archive of that scoring period)."""
     sid = con.execute("SELECT MAX(snapshot_id) FROM lineups WHERE league_id=? AND scoring_period=? AND actual_points IS NOT NULL",

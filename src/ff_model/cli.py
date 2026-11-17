@@ -46,6 +46,8 @@ def main(argv=None) -> None:
     bt.add_argument("weeks", type=int, nargs="+")
     bf = sub.add_parser("backfill-finals", help="archive final lineups/points for past weeks")
     bf.add_argument("weeks", type=int, nargs="+")
+    fw = sub.add_parser("finish-week", help="make a finished week reviewable: refresh nflverse + ESPN projection history")
+    fw.add_argument("week", type=int)
     eh = sub.add_parser("espn-history", help="backfill ESPN weekly projections 2019-2025")
     eh.add_argument("--seasons", type=int, nargs="*")
     eh.add_argument("--weeks", type=int, nargs="*", help="only these weeks (e.g. completed weeks this season)")
@@ -140,6 +142,10 @@ def main(argv=None) -> None:
         for w in args.weeks:
             sid = runner.backfill_finals(con, w)
             print(f"week {w}: " + (f"snapshot {sid}" if sid else "already archived"))
+    elif args.cmd == "finish-week":
+        from .model.review import finished_weeks
+        runner.finish_week(args.week)
+        print(f"week {args.week}: " + ("finished" if args.week in finished_weeks() else "not finished yet"))
     elif args.cmd == "reparse":
         ids = args.snapshot_ids or [r["id"] for r in con.execute("SELECT id FROM snapshots")]
         for sid in ids:

@@ -43,3 +43,9 @@ def test_props_fetched_once_and_parsed(tmp_path, monkeypatch):
     td = con.execute("SELECT * FROM prop_lines WHERE market='player_anytime_td' AND"
                      " player_name='Bijan Robinson' AND bookmaker='draftkings'").fetchone()
     assert td["outcome"] == "Yes" and td["price"] == -220
+
+    # a snapshot in the next week sees none of last week's props
+    from ff_model.model.report import _props
+    nxt = con.execute("INSERT INTO snapshots (season, week, started_at, status) VALUES"
+                      " (2026, 11, 'y', 'ok')").lastrowid
+    assert _props(con, sid, "Bijan Robinson") and _props(con, nxt, "Bijan Robinson") == []

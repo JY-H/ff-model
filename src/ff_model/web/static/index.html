@@ -209,7 +209,7 @@ async function init() {
   S.weeks = w.weeks; S.teams = w.teams; S.me = w.me;
   S.team = S.team || w.me; S.week = S.week || S.weeks[S.weeks.length - 1].week;
   $("#team").innerHTML = S.teams.map(t => `<option value="${t.id}">${esc(t.name)}${t.id === S.me ? " (you)" : ""}</option>`).join("");
-  $("#week").innerHTML = S.weeks.map(x => `<option value="${x.week}">Week ${x.week} · ${x.source === "live" ? "live" : "replay"}</option>`).join("");
+  $("#week").innerHTML = S.weeks.map(x => `<option value="${x.week}">Week ${x.week} · ${x.source === "replay" ? "replay" : x.final ? "final" : "live"}</option>`).join("");
   syncControls(); route();
 }
 function syncControls() {
@@ -450,7 +450,7 @@ function heroCard(r, replay) {
       <div><div class="label">${replay ? "Model's win chance (as of Sunday 11:45)" : "Win chance with the recommended lineup"}</div>
         <div class="big">${pct(r.p_win)}</div><div class="sub">${esc(r.me.name)} vs ${esc(r.opponent.name)}</div></div>
       <div class="statrow">${stats.map(([k, v]) => `<div><span class="label">${k}</span><b>${v}</b></div>`).join("")}</div>
-      ${replay ? `<div class="happened"><span class="label">What actually happened</span><b>${pts(o.actual, 0)} – ${pts(o.opponent, 0)}</b>
+      ${o ? `<div class="happened"><span class="label">What actually happened</span><b>${pts(o.actual, 0)} – ${pts(o.opponent, 0)}</b>
         <span class="sub">${o.actual > o.opponent ? "won" : "lost"} · model's lineup would have scored ${pts(o.model, 1)} (${o.model > o.opponent ? "win" : "loss"})</span></div>` : ""}
     </div>
     ${action}
@@ -481,7 +481,7 @@ function renderMatchup(r) {
       : `<div class="banner">Late swap: ${r.locked_count} starter${r.locked_count > 1 ? "s'" : "'s"} game${r.locked_count > 1 ? "s have" : " has"} already kicked off: locked at current points; the recommendation only moves the rest.</div>`) : ""}
     ${ov}
     ${heroCard(r, replay)}
-    ${replay ? replayTable(r) : ""}
+    ${o ? replayTable(r) : ""}
     <h2>Head to head${replay ? " (model's lineup vs. their actual lineup)" : ""}</h2>
     ${rangeLegend(replay)}
     <div class="card scroll h2hcard" style="margin-top:6px"><table class="h2h">
@@ -732,7 +732,7 @@ function renderSeason(t) {
   setHeader(`${esc(t.team.name)} · ${t.weeks.length ? `Weeks ${t.weeks[0].week}–${t.weeks[t.weeks.length - 1].week}` : "no finished weeks yet"}`);
   const w = t.weeks, sum = k => w.reduce((s, x) => s + (x[k] || 0), 0);
   $("#main").innerHTML = `
-    <p class="intro">Each completed week replayed as of Sunday 11:45 ET: the model's lineup vs. the highest-projection lineup vs. what the team started, all scored on actual results. Live weeks join once final scores are archived (Tuesday).</p>
+    <p class="intro">Each completed week as of Sunday 11:45 ET: the model's lineup vs. the highest-projection lineup vs. what the team started, all scored on actual results. Weeks before the archiver went live are replays (ESPN's projection history); later weeks use the archived 11:45 snapshot and join once final scores are saved on Tuesday.</p>
     <div class="tiles">
       <div class="card tile"><div class="label">Record with the lineups started</div><div class="value">${w.filter(x => x.won).length}–${w.filter(x => !x.won).length}</div></div>
       <div class="card tile"><div class="label">Record with the model's lineups</div><div class="value">${w.filter(x => x.model_would_win).length}–${w.filter(x => !x.model_would_win).length}</div></div>
@@ -741,7 +741,7 @@ function renderSeason(t) {
     </div>
     <div class="card scroll" style="margin-top:10px"><table>
       <tr><th>Week</th><th>Opponent</th><th class="num">Started</th><th class="num">Model</th><th class="num">Highest proj.</th><th class="num">Opponent</th><th>Result</th><th>Model would</th><th class="num">Model P(win)</th><th></th></tr>
-      ${w.map(x => `<tr class="clickable" onclick="S.week=${x.week};S.tab='matchup';S.snapshot=null;syncControls();route()"><td>${x.week}</td><td>${esc(x.opponent)}</td>
+      ${w.map(x => `<tr class="clickable" onclick="S.week=${x.week};S.tab='matchup';S.snapshot=${x.snapshot_id || null};syncControls();route()"><td>${x.week}${x.source === "live" ? ` <span class="muted small">live</span>` : ""}</td><td>${esc(x.opponent)}</td>
         <td class="num">${pts(x.actual_points)}</td><td class="num">${pts(x.model_points)}</td><td class="num">${pts(x.maxproj_points)}</td><td class="num">${pts(x.opp_points)}</td>
         <td>${x.won ? "Won" : "Lost"}</td><td>${x.model_would_win ? "win" : "lose"}</td><td class="num">${pct(x.model_pwin)}</td><td class="small muted">${x.differs ? "model differs" : ""}</td></tr>`).join("")}
     </table></div>

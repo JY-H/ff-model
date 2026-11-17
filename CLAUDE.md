@@ -44,7 +44,7 @@ Head-to-head is a win/lose payoff, so variance and correlation with the opponent
 | 3. Player distributions | ✅ Quantile model with context (weather, spread, injuries, OL/DB) |
 | 4. Correlation model | ✅ Role-pair copula, validated on 2024–2025 sums |
 | 5. Optimizer + late swap | ✅ `recommend` command and `web` page |
-| 6. Backtest and live tracking | ✅ League 2026 W1–9 replay; synthetic walk-forward 2022–2025 |
+| 6. Backtest and live tracking | ✅ League 2026 W1–9 replay, live weeks from W10; synthetic walk-forward 2022–2025 |
 
 ### 1. Archiver ✅
 
@@ -95,7 +95,7 @@ Saves the data that disappears if it isn't captured at the time. launchd runs `t
   - In 2020, projections and actuals correlate at 0.56 and match exactly in only ~1% of player-weeks.
   - Late scratches keep their projection. Tyrod Taylor, 2020 W2, still shows 16.8.
   - Finished 2026 games still show the pre-game numbers.
-- **Unknown:** whether they freeze at kickoff or earlier (before inactives). Check this by comparing the archived 2026 W10 snapshots with what the API serves afterwards.
+- **Settled (2026 W10):** the served history equals each game's last projection before kickoff, scoring stats identical to the archived snapshots. One consequence for the W1–9 replay: 4 pm and Monday games carry ESPN's Sunday-afternoon updates (late inactives), after the 11:45 decision time, so the replay has slight hindsight on late games. Live weeks use the archived 11:45 snapshot instead.
 - **Don't use** the injury and status fields in these responses. They're players' *current* status, not the status that week. Use the nflverse injury reports instead.
 
 **nflverse (2012 to now):** play-by-play (trimmed to ~27 columns), weekly player and team stats, snap counts, schedules with closing spread and total, injury reports, `ff_opportunity` (expected fantasy points), and `ff_playerids` (ID crosswalk).
@@ -141,7 +141,7 @@ Saves the data that disappears if it isn't captured at the time. launchd runs `t
   - player props (information only, never a model input): on the rankings page, a Books column turns each player's props into points on ESPN's scale. Each prop stat (books' median line; expected TDs from the anytime price) is divided by its slate-wide books/ESPN ratio first, because lines are medians and sit ~17–20% under ESPN's yardage averages
   - the Trade Analyzer (`model/trades.py`): every completed trade in the league (from ESPN's activity feed; `mTransactions2` only details your own team's trades), your trades in detail and every trade judged from both sides, what each side scored since, and your highest-projection lineup each week with vs. without the trade, scored on actual results. Assumes you'd have kept the outgoing players; a trade's window ends when its incoming players are traded on.
   - the Weekly Review tab, for finished weeks (`model/review.py`): each result split into ESPN's projection + **role** (what the usage he got is usually worth, from nflverse expected points, minus ESPN) + **luck** (actual minus that), with rule-based guesses for why usage differed (snap share, next week's injury report, teammates out or leaving early, final score vs. the line, team volume, wind). Information only.
-- Any week (live, or replay of 2026 W1–9 with final results) and any team can be shown.
+- Any week and any team can be shown: replays of 2026 W1–9, and live weeks (labelled "final" once their finals are saved, with the result shown against each snapshot's pick).
 
 ### 6. Backtest ✅ and live tracking ⏭️
 
@@ -149,7 +149,8 @@ Saves the data that disappears if it isn't captured at the time. launchd runs `t
 - **Synthetic walk-forward**, 2022–2025 (`model/backtest_synth.py`, `backtest-synth --variant … --seasons …`): random 16-team leagues from real player-weeks, with models fit only on earlier seasons. An earlier run used each player's last-week distribution for every week (a lookup keyed by player only); those results were void and are kept in `data/backtest_synth_invalid/`.
 - **Result for the live variant (ESPN + context):** where it differs from the highest-projection lineup (about 34% of decisions), it gains **+0.60 ± 0.48 points**. Win-rate change is +0.2%, within noise. P(win) is well calibrated (predicted 85% won 82–86%).
 - **ESPN's own win probability is too cautious.** It behaves like a margin SD of about 56 points; this league's actual margins vary about 27 around the projected margin (2026 W1–9, 72 matchups). Favorites projected 25+ points ahead won 86% of the time.
-- **Still to do:** log each live week (model pick, my pick, outcome) once Tuesday finals land, and add live weeks to the season tab.
+- **Live weeks** join the season tab once their finals are saved: the model's pick at that week's Sunday 11:45 snapshot (rebuilt with the current code), the lineup actually started, and the result. A week is "final" when a later Tuesday snapshot (or a backfill) holds its finals (`backtest.final_weeks`); it's reviewable once nflverse usage covers every team that played and ESPN's projection history is downloaded (`review.finished_weeks`).
+- **Finishing a week:** the Tuesday slot runs `finish_week` (nflverse refresh + last week's ESPN projection history, 2 requests); Wednesday retries if nflverse lagged. `ff-archive finish-week N` does the same by hand.
 
 ## Code and data
 
@@ -175,7 +176,8 @@ src/ff_model/
 | `reparse` | rebuild the derived tables from saved raw responses |
 | `transactions WEEKS…` | archive ESPN's transaction log for those weeks (one request each) plus the league trade feed |
 | `backfill-finals WEEKS…` | save final lineups and points for past weeks |
-| `nflverse` | download or refresh nflverse history (run by hand on Tuesdays) |
+| `nflverse` | download or refresh nflverse history (the Tuesday slot refreshes the current season) |
+| `finish-week N` | make a finished week reviewable: nflverse refresh + its ESPN projection history |
 | `espn-history [--seasons] [--weeks]` | download ESPN weekly projections (2019–2025; completed weeks of 2026) |
 | `screen-factors` | regenerate the factor evidence table shown on the page |
 | `fit-marginals` | refit player distributions on 2019–2025 (~4 min) |
@@ -199,5 +201,4 @@ src/ff_model/
 
 - Odds API quota reset date: assumed the 1st of the month. Check the account dashboard.
 - Backups: `archive.db` and `espn_history/` exist only on this laptop. A cloud-folder copy has been proposed.
-- Whether ESPN's historical projections freeze at kickoff or before inactives: compare the archived W10 snapshots with what the API serves after the week.
 - FantasyPros: decided against. Player props from The Odds API are the better second source.

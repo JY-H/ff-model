@@ -148,7 +148,7 @@ Each snapshot saves:
 - all rosters, lineups and matchups, including ESPN's own win probability
 - game lines from The Odds API, and player props for games that lock before the next slot
 - pre-game context: a kickoff-window weather forecast for every outdoor game, the stadium and roof for every game, and the week's nflverse injury report with practice participation (offensive line and defensive backs included)
-- on Tuesdays: league scoring settings, last week's finals, and the transaction log plus the league trade feed
+- on Tuesdays: league scoring settings, last week's finals, and the transaction log plus the league trade feed; then last week is finished for review: an nflverse refresh and its ESPN projection history (retried Wednesday if nflverse lags)
 
 ### Odds budget
 
@@ -365,7 +365,8 @@ Commands (`uv run ff-archive …`):
 | `reparse` | rebuild derived tables from raw responses |
 | `backfill-finals WEEKS…` | save final lineups and points for past weeks |
 | `transactions WEEKS…` | archive the transaction log for those weeks plus the league trade feed |
-| `nflverse` | download or refresh nflverse history (run on Tuesdays) |
+| `nflverse` | download or refresh nflverse history (the Tuesday slot refreshes the current season) |
+| `finish-week N` | make a finished week reviewable: nflverse refresh + its ESPN projection history |
 | `espn-history [--seasons] [--weeks]` | download ESPN weekly projections |
 | `screen-factors` | regenerate the factor evidence table |
 | `fit-marginals` / `fit-correlation` | refit the models on 2019–2025 |
@@ -401,7 +402,7 @@ Run the tests with `uv run pytest`.
 
 ## Known limitations
 
-- ESPN's historical projections: it's unknown whether they freeze at kickoff or earlier (before inactives). Comparing archived snapshots with what the API serves after the week will settle it.
+- The W1–9 league replay uses ESPN's projection history, which holds each game's last pre-kickoff projection (checked against the archived W10 snapshots). For 4 pm and Monday games that includes Sunday-afternoon updates made after the 11:45 decision time, so the replay has slight hindsight on late games. Live weeks (W10 on) use the archived 11:45 snapshot.
 - The Odds API quota reset date is assumed to be the 1st of the month.
 - `archive.db` and `espn_history/` are stored only locally; there's no backup elsewhere yet.
 - The post-week reasons are rule-based guesses with hand-picked thresholds.

@@ -94,8 +94,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/context":
                 return self._json(R.week_context(q.get("week"), q.get("snapshot")))
             if path == "/api/review":
-                from ..model.review import FINISHED, week_review
-                wk = q.get("week") if q.get("week") in FINISHED else max(FINISHED)
+                from ..model.review import finished_weeks, week_review
+                done = finished_weeks()
+                wk = q.get("week") if q.get("week") in done else max(done)
                 return self._json({"requested": q.get("week"), "review": week_review(wk, q.get("team"))})
             if path == "/api/trades":
                 from ..model.trades import analyze

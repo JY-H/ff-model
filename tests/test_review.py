@@ -26,3 +26,15 @@ def test_opportunity_features_use_earlier_games_only():
     gp, tp = g.filter(pl.col("gsis_id") == pid), t.filter(pl.col("gsis_id") == pid).sort("week")
     assert tp["fpoe_l1"][0] is None                       # first game: nothing before it
     assert tp["fpoe_l1"][1] == pytest.approx(gp["fpoe"][0])  # second game sees only the first
+
+
+def test_current_week_is_not_final():
+    # a week counts as final only once a later week's Tuesday snapshot (or a backfill) saved its finals,
+    # never from the in-progress scores of its own snapshots
+    from ff_model.model.backtest import final_weeks
+    from ff_model.model.report import _con
+    if not DB_PATH.exists():
+        pytest.skip("no archive")
+    con = _con()
+    current = con.execute("SELECT MAX(week) FROM snapshots WHERE slot_key IS NULL OR slot_key NOT LIKE '%backfill'").fetchone()[0]
+    assert current not in final_weeks(con) and current - 1 in final_weeks(con)

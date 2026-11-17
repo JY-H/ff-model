@@ -171,10 +171,31 @@ def tick() -> None:
             name = slot.key.rsplit("-", 1)[1]
             snapshot(con, slot.week, slot.key, with_odds=True,
                      prev_week=(name == "tue"), settings=(name == "tue"), slot=slot)
+            if name in ("tue", "wed"):  # Wednesday retries: nflverse's usage data can lag a day
+                finish_week(slot.week - 1)
         try:
             schedule_wakes(con, now)
         except Exception as e:
             log.error("wake scheduling failed: %s", e)
+
+
+def finish_week(week: int) -> None:
+    """Make last week reviewable: refresh nflverse (free) and download its ESPN projection
+    history (a couple of requests), unless it's already finished."""
+    from ..model.review import finished_weeks
+    if week < 1 or week in finished_weeks():
+        return
+    from ..research import espn_history, nflverse
+    try:
+        nflverse.pull([SEASON])
+    except Exception as e:
+        log.error("nflverse refresh failed: %s", type(e).__name__)
+    try:
+        espn_history.download([SEASON], [week])
+        espn_history.parse()
+    except Exception as e:  # Throttled included: stop, the Wednesday slot retries
+        log.error("ESPN history for week %d failed: %s", week, e)
+    log.info("week %d %s", week, "finished" if week in finished_weeks() else "not finished yet (retry Wednesday)")
 
 
 def status_report(con) -> str:

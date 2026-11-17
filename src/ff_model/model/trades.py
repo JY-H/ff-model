@@ -21,7 +21,7 @@ from ..db import load_raw
 from .backtest import _final_rosters
 from .optimize import BENCH, IR, _slot_counts
 from .report import _roster_names, team_names
-from .review import FINISHED, _frame
+from .review import _frame, finished_weeks
 
 FLEX_OK = ("RB", "WR", "TE")
 
@@ -90,8 +90,8 @@ def analyze(team_id: int | None = None) -> dict:
     me = team_id or MY_TEAM_ID
     counts = _slot_counts(con)
     names = team_names()
+    weeks = finished_weeks()
     frame = _frame()
-    weeks = list(FINISHED)
     ros = {w: _final_rosters(con, w) for w in weeks}
     pinfo: dict[int, dict] = {}
     for w in weeks:

@@ -1,6 +1,6 @@
 """Post-week review: was a result role or luck?
 
-For each player in a finished week (2026 W1-9 now; live weeks once Tuesday finals land):
+For each player in a finished week (see finished_weeks: live weeks join once Tuesday's finals land):
   proj   ESPN's projection
   xfp    expected points from the opportunities he actually got (targets, carries, attempts,
          and where on the field they happened; nflverse ff_opportunity, this league's scoring)
@@ -17,15 +17,42 @@ from functools import lru_cache
 
 import polars as pl
 
-from ..config import MY_TEAM_ID, SEASON
-from ..research.nflverse import load
+from ..config import DATA_DIR, LEAGUE_ID, MY_TEAM_ID, SEASON
+from ..research.nflverse import NFLVERSE_DIR, load
 from ..research.opportunity import DETAIL, player_games
-from .backtest import _final_rosters
+from .backtest import _final_rosters, final_weeks
 from .optimize import BENCH, IR, SLOT
 from .report import _con, _replay_frame, _roster_names, team_names
 
 SKILL = ("QB", "RB", "WR", "TE")
-FINISHED = range(1, 10)  # weeks with final lineups + ESPN projection history; live weeks join after Tuesday finals
+def finished_weeks() -> list[int]:
+    """Weeks that can be reviewed: finals archived, plus ESPN's projection history and nflverse usage for the week.
+
+    Live weeks join once the Tuesday slot has saved the finals and pulled both downloads.
+    """
+    _refresh()
+    hist = {int(p.stem[1:3]) for p in (DATA_DIR / "espn_history" / str(SEASON)).glob("w*-p0.json.gz")}
+    # nflverse usage for every team that played (the files fill in game by game)
+    teams = _games().group_by("week").agg(pl.col("team").n_unique().alias("n"))
+    con = _con()
+    played = dict(con.execute("SELECT week, 2 * COUNT(*) FROM pro_games WHERE season=? GROUP BY week", (SEASON,)).fetchall())
+    used = {r["week"] for r in teams.iter_rows(named=True) if r["n"] >= played.get(r["week"], 99)}
+    return sorted(final_weeks(con) & hist & used)
+
+
+_version = None
+
+
+def _refresh() -> None:
+    """Drop cached frames when the downloads under them change (Tuesday's ESPN history and nflverse refresh)."""
+    global _version
+    files = [DATA_DIR / "espn_history" / "projections.parquet",
+             *(NFLVERSE_DIR / d / f"{SEASON}.parquet" for d in ("ff_opportunity", "pbp", "snap_counts", "injuries"))]
+    v = tuple(f.stat().st_mtime if f.exists() else None for f in files)
+    if v != _version:
+        for f in (_frame, _games, _snaps, role_reasons, _replay_frame):
+            f.cache_clear()
+        _version = v
 
 
 @lru_cache(maxsize=1)
@@ -289,10 +316,10 @@ def _verdict(w: dict) -> str:
     return head + ": " + (", ".join(bits[:-1]) + " and " if len(bits) > 1 else "") + bits[-1] + "."
 
 
-def season_review(team_id: int | None = None, weeks=FINISHED) -> dict:
+def season_review(team_id: int | None = None, weeks=None) -> dict:
     """Per finished week: this team's margin split into projection, role, luck and K/DST, with a verdict."""
     out = []
-    for w in weeks:
+    for w in finished_weeks() if weeks is None else weeks:
         r = week_review(w, team_id)
         a, b = r["totals"]["me"], r["totals"]["opp"]
         out.append({"week": w, "opponent": r["opp"]["name"], "proj_margin": a["proj"] - b["proj"],
