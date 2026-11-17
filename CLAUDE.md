@@ -131,7 +131,7 @@ Saves the data that disappears if it isn't captured at the time. launchd runs `t
 `model/optimize.py` scores every legal lineup by P(win) on the same 20,000 simulated weeks of both lineups.
 
 - **Late swap:** players whose game has started are locked at their current points.
-- **Opponent:** keeps their current lineup; an Out starter is replaced from their bench.
+- **Opponent:** their highest-projection lineup from players who can still play (anyone whose game has started stays put), since a lineup set early in the week usually changes by kickoff. The page tags players placed differently from their current lineup. Replays use the lineup they actually started.
 - **Tie-break:** when P(win) is tied within noise (e.g. near 0% or 100%), the lineup with the most expected points wins.
 - **The web page** (`web/`, `ff-archive web`) shows:
   - a recommendation card with swaps against the current lineup, and urgent flags for starters who can't score

@@ -221,7 +221,7 @@ These are stable across eras. On 2024–2025, simulated stack, team and D/ST-plu
 - Enumerate every legal lineup (QB, RB×2, WR×2, TE, FLEX, D/ST, K), deduplicated by player set, with empty placeholders when a slot can't be filled.
 - Score each by P(my total > opponent's total).
 - **Late swap:** players whose game has kicked off are locked at their current points.
-- **Opponent:** keeps their current lineup; an Out starter is replaced from their bench.
+- **Opponent:** their highest-projection lineup from players who can still play (anyone whose game has started stays put), since a lineup set early in the week usually changes by kickoff. The page tags players placed differently from their current lineup. Replays use the lineup they actually started.
 - **Tie-break:** when P(win) is tied within simulation noise (e.g. near 0% or 100%), the lineup with more expected points wins.
 
 ---

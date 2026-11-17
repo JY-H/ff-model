@@ -456,7 +456,8 @@ def build_report(week: int | None = None, team_id: int | None = None, snapshot_i
     base_med = anchor(marg.quantiles(neutralize(dfq)), proj_arr)[:, i50]
     shares = features(dfq.with_columns([pl.col(c).fill_null(0.0) for c in ["p_rush_td", "p_rec_td", "p_rec", "p_pass_td", "p_rush_yds"]]))
 
-    opp_start = _opponent_starters(df.filter(pl.col("team_id") == opp_id), counts)
+    # live: the opponent's best (highest-projection) lineup; replay: what they actually started
+    opp_start = _opponent_starters(df.filter(pl.col("team_id") == opp_id), counts, as_set=source == "replay")
     mine = df.filter(pl.col("team_id") == me_id)
     q_of = dict(zip(df["player_id"].to_list(), q))
     dec = decide(mine, opp_start, q_of, counts, C.load(), n=n, seed=seed,
@@ -489,6 +490,7 @@ def build_report(week: int | None = None, team_id: int | None = None, snapshot_i
     line_who = _line_who(source, sid, week)
     vac_who = _vacated_who(source, sid, week)
     opp_ids = set(opp_start["player_id"])
+    opp_slot = dict(zip(opp_start["player_id"].to_list(), opp_start["slot"].to_list()))
 
     def player(i: int, r: dict, side: str) -> dict:
         p = r["player_id"]
@@ -548,7 +550,12 @@ def build_report(week: int | None = None, team_id: int | None = None, snapshot_i
                                          if r["game"] and g == r["game"] and nm != r["name"]),
                                         key=lambda x: -abs(x["corr"]))
         else:
+            # where we expect him to start, and whether that differs from the lineup as they've set it
             out["starting"] = p in opp_ids
+            out["set_slot"] = out["slot"]
+            if p in opp_ids:
+                out["slot"] = SLOT[opp_slot[p]]
+            out["moved"] = out["starting"] != (out["set_slot"] not in ("BE", "IR"))
         return out
 
     rows = list(df.iter_rows(named=True))

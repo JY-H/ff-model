@@ -26,6 +26,7 @@ from .marginals import MODEL_PATH, TAUS, Marginals, espn_context_quantiles
 from .simulate import draw
 
 SLOT = {0: "QB", 2: "RB", 4: "WR", 6: "TE", 16: "D/ST", 17: "K", 23: "FLEX"}
+SLOT_ID = {v: k for k, v in SLOT.items()}
 BENCH, IR = 20, 21
 FLEX_OK = {"RB", "WR", "TE"}
 
@@ -84,7 +85,7 @@ def recommend(snapshot_id: int | None = None, n: int = 20000, seed: int = 7) -> 
     taus = list(TAUS)
     df = df.with_columns(*[pl.Series(f"p{int(t*100)}", q[:, taus.index(t)]) for t in (0.1, 0.5, 0.9)])
 
-    # opponent starters: current lineup, Out/bye starters replaced by best eligible bench
+    # opponent starters: their highest-projection lineup from players who can still play
     opp = df.filter(pl.col("team_id") == opp_id)
     opp_start = _opponent_starters(opp, counts)
 
@@ -188,10 +189,35 @@ def score_lineups(D: np.ndarray, L: np.ndarray, fixed_me: float, opp_total: np.n
     return my_totals, diff, (diff > 0).mean(axis=0) + 0.5 * (diff == 0).mean(axis=0)
 
 
-def _opponent_starters(opp: pl.DataFrame, counts: dict[str, int]) -> pl.DataFrame:
+def _opponent_starters(opp: pl.DataFrame, counts: dict[str, int], as_set: bool = False) -> pl.DataFrame:
+    """The opponent lineup to play against, with each player's slot set to where he'd start.
+
+    Default: their highest-projection lineup from the players who can still play (anyone whose game
+    has started stays where he is), since a lineup set early in the week usually changes by kickoff.
+    as_set: the lineup as it stands, Out/bye starters replaced by the best eligible bench player.
+    """
+    locked = opp.filter(pl.col("locked") & ~pl.col("slot").is_in([BENCH, IR]))
+    if as_set:
+        return _as_set(opp)
+    left = dict(counts)
+    for sl in locked["slot"]:
+        left[SLOT[sl]] -= 1
+    free = opp.filter(~pl.col("locked") & ~pl.col("unavailable") & (pl.col("slot") != IR)).sort("proj", descending=True)
+    rows, pick = list(free.iter_rows(named=True)), {}
+    for pos in ("QB", "RB", "WR", "TE", "K", "D/ST"):
+        for r in [r for r in rows if r["pos"] == pos][:max(0, left.get(pos, 0))]:
+            pick[r["player_id"]] = SLOT_ID[pos]
+    for r in [r for r in rows if r["pos"] in FLEX_OK and r["player_id"] not in pick][:max(0, left.get("FLEX", 0))]:
+        pick[r["player_id"]] = SLOT_ID["FLEX"]
+    chosen = free.filter(pl.col("player_id").is_in(list(pick))).with_columns(
+        pl.col("player_id").replace_strict(pick, return_dtype=opp.schema["slot"]).alias("slot"))
+    return pl.concat([locked, chosen])
+
+
+def _as_set(opp: pl.DataFrame) -> pl.DataFrame:
     start = opp.filter(~pl.col("slot").is_in([BENCH, IR]))
     bench = opp.filter((pl.col("slot") == BENCH) & ~pl.col("unavailable") & ~pl.col("locked")).sort("proj", descending=True)
-    keep, used = [], set()
+    keep, used = {}, set()
     for r in start.iter_rows(named=True):
         if r["unavailable"] and not r["locked"]:
             need = SLOT[r["slot"]]
@@ -199,10 +225,11 @@ def _opponent_starters(opp: pl.DataFrame, counts: dict[str, int]) -> pl.DataFram
             sub = next((b for b in bench.iter_rows(named=True) if b["pos"] in ok and b["player_id"] not in used), None)
             if sub:
                 used.add(sub["player_id"])
-                keep.append(sub["player_id"])
+                keep[sub["player_id"]] = r["slot"]  # the sub takes the starter's slot
             continue
-        keep.append(r["player_id"])
-    return opp.filter(pl.col("player_id").is_in(keep))
+        keep[r["player_id"]] = r["slot"]
+    return opp.filter(pl.col("player_id").is_in(list(keep))).with_columns(
+        pl.col("player_id").replace_strict(keep, return_dtype=opp.schema["slot"]).alias("slot"))
 
 
 EMPTY = "EMPTY"  # placeholder for a slot no available player can fill (scores 0)

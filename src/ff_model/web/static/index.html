@@ -369,10 +369,14 @@ function slotLists(rows, side) {
   return {slots: out, bench: rows.filter(p => !start.includes(p)).sort((a, b) => b.proj - a.proj)};
 }
 const H2H_W = 160;  // range-chart width in the head-to-head
+// opponent lineup = their best lineup; mark where that differs from the lineup as they've set it
+const movedChip = p => !p.moved ? "" : p.starting
+  ? `<span class="chip" title="Their highest-projection lineup starts him; he's on their bench now">assumed in · ${esc(p.set_slot)} now</span>`
+  : `<span class="chip" title="They start him now, but their highest-projection lineup doesn't">assumed out · starting now</span>`;
 function cell(p, side, align) {
   if (!p) return side === "me" ? `<td class="muted small">(empty)</td><td></td><td></td><td></td>` : `<td></td><td></td><td></td><td class="muted small r">(empty)</td>`;
   const finPill = p.final != null ? `<span class="chip" style="font-weight:650;color:var(--text-primary)">final ${pts(p.final)}</span>` : "";
-  const chips = `${statusChips(p)}${side === "me" ? " " + linkChips(p) : ""}`;
+  const chips = `${statusChips(p)}${side === "me" ? " " + linkChips(p) : " " + movedChip(p)}`;
   // name block and tags side by side: tags sit toward the middle of the table, where the space is
   const name = `<td class="clickable namecell" data-player="${p.id}"><div class="nc ${side}">
       <div class="nm"><div class="pname">${esc(p.name)} ${finPill}</div>
@@ -387,7 +391,7 @@ function benchTable(all, side, title) {
   const why = p => p.status === "IR" ? "IR" : p.status === "Out" ? "Out" : p.opp ? "inactive" : "bye";
   return `<div class="card scroll"><div class="secondary small">${esc(title)}</div><table>
     <tr><th>Player</th><th class="num">ESPN</th><th class="num">Model</th><th class="rngcell">${axisSvg(S.sc)}</th>${side === "me" ? '<th class="num">P(win) if started</th>' : ""}</tr>
-    ${rows.map(p => `<tr><td class="clickable" data-player="${p.id}"><div class="pname">${esc(p.name)}</div><div class="pmeta">${esc(p.pos || "")} · ${esc(p.team || "")}${p.opp ? " vs " + esc(p.opp) : " · bye"}${p.final != null ? ` · final ${pts(p.final)}` : ""}${p.started_actually ? " · they started him" : ""}</div><div class="chips">${statusChips(p)}${side === "me" ? " " + linkChips(p) : ""}</div></td>
+    ${rows.map(p => `<tr><td class="clickable" data-player="${p.id}"><div class="pname">${esc(p.name)}</div><div class="pmeta">${esc(p.pos || "")} · ${esc(p.team || "")}${p.opp ? " vs " + esc(p.opp) : " · bye"}${p.final != null ? ` · final ${pts(p.final)}` : ""}${p.started_actually ? " · they started him" : ""}</div><div class="chips">${statusChips(p)}${side === "me" ? " " + linkChips(p) : " " + movedChip(p)}</div></td>
       <td class="num">${pts(p.proj)}</td>${modelTd(p)}<td class="clickable rngcell" data-player="${p.id}">${rangeSvg(p, S.sc, side)}</td>
       ${side === "me" ? `<td class="num">${p.pwin_if_started != null ? pct(p.pwin_if_started, 1) : "–"}</td>` : ""}</tr>`).join("")}</table>
     ${gone.length ? `<div class="small muted" style="margin-top:6px">Unavailable: ${gone.map(p => `<span class="clickable" data-player="${p.id}">${esc(p.name)}</span> (${why(p)})`).join(", ")}</div>` : ""}</div>`;
@@ -502,7 +506,7 @@ function renderMatchup(r) {
       <li>The model range is where the score should land: 80% of the time between the line's ends, half the time in the box. ESPN is ESPN's projection in your league's scoring.</li>
       <li>P(win) simulates both lineups together, including how players move together (QB and receivers rise together; a D/ST falls when the QB it faces booms). Rows with a blue edge are players to swap in, compared with ${r.source === "live" ? "your current lineup" : "the lineup that was started"} (the same swaps as the card at the top).</li>
       <li>Click a player for the full distribution, the stat line behind ESPN's number, what moved the median and why, props, and what-if controls.</li>
-      <li>The opponent is assumed to keep their current lineup (Out starters replaced from the bench). Kickers' upside is a little too narrow; P(win) is slightly cautious at the extremes.</li></ul></div>`;
+      <li>${r.source === "replay" ? "The opponent's lineup is the one they actually started." : "The opponent is assumed to start their highest-projection lineup from the players who can still play (anyone whose game has started stays put), since a lineup set early usually changes by kickoff. Players placed differently from their current lineup are tagged."} Kickers' upside is a little too narrow; P(win) is slightly cautious at the extremes.</li></ul></div>`;
   document.querySelectorAll("rect.mbar").forEach(el => { el.onmousemove = e => showTip(e, `Margin ${sgn(+el.dataset.a, 0)} to ${sgn(+el.dataset.b, 0)}: ${pct(+el.dataset.p, 1)} of simulations`); el.onmouseleave = hideTip; });
   bindRanges([...r.players.me, ...r.players.opp]);
 }

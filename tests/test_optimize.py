@@ -1,7 +1,7 @@
 import numpy as np
 import polars as pl
 
-from ff_model.model.optimize import _enumerate, decide, score_lineups
+from ff_model.model.optimize import BENCH, SLOT_ID, _enumerate, _opponent_starters, decide, score_lineups
 
 COUNTS = {"QB": 1, "RB": 2, "WR": 2, "TE": 1, "FLEX": 1, "K": 1, "D/ST": 1}
 
@@ -51,3 +51,19 @@ def test_every_game_started_means_nothing_to_simulate():
         "role": ["x"] * 9, "team": ["A"] * 9, "opp": ["B"] * 9})
     d = decide(side(0, 12.0), side(100, 10.0), {}, COUNTS, {}, n=100)
     assert d.fixed_me == 108.0 and float(d.opp_total.mean()) == 90.0 and d.pwin[d.best] == 1.0
+
+
+def test_opponent_plays_their_best_lineup_not_the_one_they_set():
+    # set: QB 1 (Out), RB 2 3, WR 4 5, TE 6, FLEX 7, K 8, D/ST 9; bench: QB 10, RB 11 (better than 3), TE 12 (played Thu, benched)
+    S = SLOT_ID
+    opp = pl.DataFrame({
+        "player_id": list(range(1, 13)),
+        "pos": ["QB", "RB", "RB", "WR", "WR", "TE", "WR", "K", "D/ST", "QB", "RB", "TE"],
+        "proj": [20.0, 15, 6, 14, 12, 8, 7, 8, 7, 16, 9, 30],
+        "slot": [S["QB"], S["RB"], S["RB"], S["WR"], S["WR"], S["TE"], S["FLEX"], S["K"], S["D/ST"], BENCH, BENCH, BENCH],
+        "locked": [False] * 11 + [True], "unavailable": [True] + [False] * 11})
+    best = dict(zip(*_opponent_starters(opp, COUNTS).select("player_id", "slot")))
+    assert set(best) == {10, 2, 11, 4, 5, 6, 7, 8, 9}  # QB 10 for the Out QB; bench RB 11 replaces RB 3
+    assert best[10] == S["QB"] and best[11] == S["RB"] and best[7] == S["FLEX"] and 12 not in best  # locked bench TE stays out
+    as_set = dict(zip(*_opponent_starters(opp, COUNTS, as_set=True).select("player_id", "slot")))
+    assert set(as_set) == {10, 2, 3, 4, 5, 6, 7, 8, 9} and as_set[10] == S["QB"]  # only the Out QB is replaced
