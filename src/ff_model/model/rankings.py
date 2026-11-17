@@ -17,7 +17,7 @@ import polars as pl
 from ..config import DATA_DIR
 from ..research.scoring import league_rules
 from .marginals import MODEL_PATH, TAUS, Marginals, anchor, curve_mean, espn_context_quantiles, features, neutralize
-from .report import GROUPS, STAT_NAMES, _con, _explain, _inputs, _line_who, _neutral, _props, _totals, _vacated_who, _ev
+from .report import GROUPS, STAT_NAMES, _con, _decision_snapshot, _final_weeks, _live_weeks, _explain, _inputs, _line_who, _neutral, _props, _totals, _vacated_who, _ev
 
 TEMPLATE = Path(__file__).resolve().parent.parent / "web" / "static" / "rankings.html"
 OUT_DIR = DATA_DIR / "share"
@@ -128,9 +128,13 @@ def _chances(q: np.ndarray, proj: float) -> dict:
     return {"beat_proj": 1 - cdf(proj), "dud": cdf(5.0), "twenty": 1 - cdf(20.0)}
 
 
-def build(snapshot_id: int | None = None) -> dict:
+def build(snapshot_id: int | None = None, week: int | None = None) -> dict:
+    """Rankings at a snapshot, or for a week: a finished live week as of its Sunday 11:45 snapshot,
+    W1-9 replayed from ESPN's projection history, the current week from its latest snapshot."""
     con = _con()
-    source, sid, week, taken, pool, _, statlines = _inputs(None, snapshot_id)
+    if snapshot_id is None and week is not None and week in _live_weeks(con) and week in _final_weeks(con):
+        snapshot_id = _decision_snapshot(con, week)
+    source, sid, week, taken, pool, _, statlines = _inputs(None if snapshot_id else week, snapshot_id)
     df = pool.filter(pl.col("pos").is_in(POSITIONS) & (pl.col("proj") >= MIN_PROJ) & pl.col("opp").is_not_null()
                      & ~pl.col("report_status").fill_null("none").is_in(["Out"]))
     df = df.with_columns(
@@ -189,8 +193,7 @@ def build(snapshot_id: int | None = None) -> dict:
         players.append(p)
     players.sort(key=lambda x: -x["mean"])
     books_scale = _books_summary(players, rules)
-    fetched = con.execute("SELECT started_at FROM snapshots WHERE id=?", (sid,)).fetchone()[0] if sid else None
-    return {"week": week, "season": int(pool["season"][0]), "as_of": fetched, "taus": taus,
+    return {"week": week, "season": int(pool["season"][0]), "as_of": taken.isoformat(), "replay": source == "replay", "taus": taus,
             "scoring": _scoring(), "books_scale": books_scale, "players": players}
 
 
@@ -198,8 +201,8 @@ def render(data: dict) -> str:
     return TEMPLATE.read_text().replace("/*DATA*/null", json.dumps(data, separators=(",", ":")))
 
 
-def write(snapshot_id: int | None = None) -> Path:
-    data = build(snapshot_id)
+def write(snapshot_id: int | None = None, week: int | None = None) -> Path:
+    data = build(snapshot_id, week)
     html = render(data)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     out = OUT_DIR / f"rankings-{data['season']}-w{data['week']:02d}.html"

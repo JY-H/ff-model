@@ -372,7 +372,7 @@ Commands (`uv run ff-archive …`):
 | `fit-marginals` / `fit-correlation` | refit the models on 2019–2025 |
 | `recommend [--snapshot N]` | best lineup by P(win), as text |
 | `web` | the local page |
-| `rankings [--snapshot N]` | the shareable all-player rankings page |
+| `rankings [--snapshot N] [--week N]` | the shareable all-player rankings page |
 | `backtest-synth --variant V --seasons …` | synthetic walk-forward backtest (run a single season first) |
 
 Data (all under `data/`, gitignored):

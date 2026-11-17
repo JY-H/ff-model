@@ -85,7 +85,8 @@ table.bk th { border-bottom: 1px solid var(--grid); }
 <script>
 const D = /*DATA*/null;
 const POS = ["ALL", "QB", "RB", "WR", "TE", "FLEX", "K", "D/ST"];
-const SORTS = {mean: "Expected", proj: "ESPN", books: "Books vs ESPN", p50: "Typical", p10: "Floor", p90: "Ceiling", twenty: "20+ chance", dud: "Dud chance"};
+const HAS_BOOKS = D.players.some(p => p.books);  // no props archived (replay weeks): no Books column
+const SORTS = {mean: "Expected", proj: "ESPN", ...(HAS_BOOKS ? {books: "Books vs ESPN"} : {}), p50: "Typical", p10: "Floor", p90: "Ceiling", twenty: "20+ chance", dud: "Dud chance"};
 const T = D.taus, I = t => T.indexOf(t);
 const S = {pos: "ALL", sort: "mean", q: "", open: null};
 try { const h = location.hash.slice(1).toUpperCase().replace("DST", "D/ST"); if (POS.includes(h)) S.pos = h; } catch (e) {}
@@ -179,7 +180,7 @@ function detail(p) {
       </tbody></table>
       <p class="small muted" style="margin:6px 0 0">Each prop replaces the matching stat in ESPN's line; other stats keep ESPN's number.
         Books are put on ESPN's scale first (see the note at the top). Information only: props aren't a model input.</p></div>` : "";
-  return `<tr class="detail"><td colspan="10"><div class="dgrid">
+  return `<tr class="detail"><td colspan="${HAS_BOOKS ? 10 : 9}"><div class="dgrid">
     <div style="display:grid;gap:12px;align-content:start">
       <div class="pcard"><div style="font-size:13.5px">${takeaway(p)}</div></div>
       <div class="pcard"><div class="ptitle">Range of outcomes</div>${distSvg(p)}</div>
@@ -218,7 +219,7 @@ function render() {
         <div class="sub">${esc(p.pos)} · ${esc(p.team)} vs ${esc(p.opp)}<span class="hide-sm"> · ${kick(p)}</span></div></td>
       <td class="num">${pts(p.proj)}</td>
       <td class="num" style="${tint(d)}">${pts(p.mean)}<span class="dsmall">${Math.abs(d) < 0.1 ? "±0" : sgn(d)}</span></td>
-      <td class="num hide-sm" ${p.books ? `style="${tint(bookGap(p), 4)}" title="${esc(propsAge(p.books.as_of, p.kickoff))}"` : ""}>${p.books ? pts(p.books.points) + `<span class="dsmall">${Math.abs(bookGap(p)) < 0.1 ? "±0" : sgn(bookGap(p))}</span>` : `<span class="muted">–</span>`}</td>
+      ${HAS_BOOKS ? `<td class="num hide-sm" ${p.books ? `style="${tint(bookGap(p), 4)}" title="${esc(propsAge(p.books.as_of, p.kickoff))}"` : ""}>${p.books ? pts(p.books.points) + `<span class="dsmall">${Math.abs(bookGap(p)) < 0.1 ? "±0" : sgn(bookGap(p))}</span>` : `<span class="muted">–</span>`}</td>` : ""}
       <td class="rng">${rangeSvg(p, lo, hi)}</td>
       <td class="num hide-sm">${pts(qv(p, .1))}–${pts(qv(p, .9))}</td>
       <td class="num hide-sm">${pct(p.chance.twenty)}</td>
@@ -227,9 +228,9 @@ function render() {
   }).join("");
   const ax = []; for (let v = lo; v <= hi; v += hi > 40 ? 10 : 5) ax.push(v);
   document.getElementById("tbl").innerHTML = `<thead><tr>
-      <th class="num">Rank</th><th>Player</th>${th("proj", "ESPN")}${th("mean", "Expected")}${th("books", "Books", "num hide-sm")}
+      <th class="num">Rank</th><th>Player</th>${th("proj", "ESPN")}${th("mean", "Expected")}${HAS_BOOKS ? th("books", "Books", "num hide-sm") : ""}
       <th>Range <span class="muted" style="font-weight:400">(0–${hi} pts)</span></th>${th("p10", "Floor–ceiling", "num hide-sm")}${th("twenty", "20+", "num hide-sm")}${th("dud", "Under 5", "num hide-sm")}<th></th></tr></thead>
-    <tbody>${rows || `<tr><td colspan="10" class="muted">No players match.</td></tr>`}</tbody>`;
+    <tbody>${rows || `<tr><td colspan="${HAS_BOOKS ? 10 : 9}" class="muted">No players match.</td></tr>`}</tbody>`;
   document.querySelectorAll(".seg button").forEach(b => b.classList.toggle("on", b.dataset.pos === S.pos));
   document.getElementById("sortsel").value = S.sort;
   document.getElementById("count").textContent = `${ps.length} players`;
@@ -251,7 +252,7 @@ function init() {
   document.getElementById("app").innerHTML = `
     <h1>Week ${D.week} player rankings · ${D.season}</h1>
     <div class="secondary">Every projected player, ranked by expected points, with a full range of outcomes and the reasons behind each adjustment.
-      ${asof ? `Data as of <b>${asof.toLocaleString(undefined, {weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short"})}</b>.` : ""}</div>
+      ${asof ? `Data as of <b>${asof.toLocaleString(undefined, {weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short"})}</b>.` : ""}${D.replay ? " Replayed from ESPN's projection history and context as of Sunday 11:45 ET." : ""}</div>
     <div class="card"><h2>Scoring</h2><div class="scoring-sum">${esc(sc.summary)}</div>
       <details><summary>Full scoring rules</summary><div class="rules">
         <div><h3>Offense &amp; kicking</h3>${sc.offense.map(rule).join("")}</div>
@@ -262,7 +263,7 @@ function init() {
       <div><b>ESPN</b> is ESPN's projection, rescored for these rules. It's used as the forecast of each player's average.</div>
       <div><b>Expected</b> = ESPN + context adjustments (weather, betting line, injury report and practice, missing linemen/DBs). Each adjustment is kept only if it beat ESPN on 2019–2025 games. Blue = above ESPN, red = below.</div>
       <div><b>Range</b>: the line spans the 10th to 90th percentile, the box the middle 50%, the solid tick the typical (median) week. The dashed tick is ESPN's number. Medians often sit below ESPN because touchdowns make scoring lopsided.</div>
-      <div><b>Books</b>: the points the sportsbooks' player props imply, scaled to ESPN's slate-wide totals (prop lines are medians, so raw lines run under ESPN's averages). Only for games whose props are in; not a model input.</div>
+      ${HAS_BOOKS ? `<div><b>Books</b>: the points the sportsbooks' player props imply, scaled to ESPN's slate-wide totals (prop lines are medians, so raw lines run under ESPN's averages). Only for games whose props are in; not a model input.</div>` : ""}
       <div><b>20+ / Under 5</b>: the chance of a big week or a dud. Click any player for the full distribution and the why.</div>
     </div>
     <div class="controls">

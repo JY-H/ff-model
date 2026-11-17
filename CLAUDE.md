@@ -137,7 +137,7 @@ Saves the data that disappears if it isn't captured at the time. launchd runs `t
   - a recommendation card with swaps against the current lineup, and urgent flags for starters who can't score
   - a head-to-head with model-vs-ESPN tinting and Stack / Hedge / Double-risk tags (from the estimated correlations)
   - a player panel with a plain-English summary, distribution, what moved the expectation, evidence, stat line, props, and what-if controls
-  - tabs: Weekly Matchup, Weekly Context (grouped by game), Weekly Review, Season Overview (replay record plus each week's margin split into projection, role, luck and K/D/ST), Trade Analyzer, Rankings (the league-free shareable page; the published claude.ai link is updated by Claude from `ff-archive rankings`)
+  - tabs: Weekly Matchup, Weekly Context (grouped by game), Weekly Review, Season Overview (replay record plus each week's margin split into projection, role, luck and K/D/ST), Trade Analyzer, Rankings (the league-free shareable page, any week: past live weeks as of their Sunday 11:45 snapshot or any other, W1–9 replayed; the published claude.ai link is updated by Claude from `ff-archive rankings`)
   - player props (information only, never a model input): on the rankings page, a Books column turns each player's props into points on ESPN's scale. Each prop stat (books' median line; expected TDs from the anytime price) is divided by its slate-wide books/ESPN ratio first, because lines are medians and sit ~17–20% under ESPN's yardage averages
   - the Trade Analyzer (`model/trades.py`): every completed trade in the league (from ESPN's activity feed; `mTransactions2` only details your own team's trades), your trades in detail and every trade judged from both sides, what each side scored since, and your highest-projection lineup each week with vs. without the trade, scored on actual results. Assumes you'd have kept the outgoing players; a trade's window ends when its incoming players are traded on.
   - the Weekly Review tab, for finished weeks (`model/review.py`): each result split into ESPN's projection + **role** (what the usage he got is usually worth, from nflverse expected points, minus ESPN) + **luck** (actual minus that), with rule-based guesses for why usage differed (snap share, next week's injury report, teammates out or leaving early, final score vs. the line, team volume, wind). Information only.
@@ -184,7 +184,7 @@ src/ff_model/
 | `fit-correlation` | re-estimate role-pair correlations |
 | `recommend [--snapshot N]` | best lineup by P(win) for my matchup, as text |
 | `web` | the recommendation page at http://127.0.0.1:8765 (local only) |
-| `rankings [--snapshot N]` | write a shareable all-player rankings page to `data/share/` (no league details) |
+| `rankings [--snapshot N] [--week N]` | write a shareable all-player rankings page to `data/share/` (no league details) |
 | `backtest-synth --variant V --seasons …` | synthetic walk-forward backtest (run a single season first) |
 
 **Data** (all under `data/`, gitignored, only on this laptop):

@@ -67,6 +67,7 @@ def main(argv=None) -> None:
     rc.add_argument("--draws", type=int, default=20000)
     rk = sub.add_parser("rankings", help="write a shareable all-player rankings page (no league details)")
     rk.add_argument("--snapshot", type=int, help="default: latest snapshot")
+    rk.add_argument("--week", type=int, help="a past week (as of its Sunday 11:45 ET); default: the current week")
     np_ = sub.add_parser("nflverse", help="download nflverse history (current season refreshed)")
     np_.add_argument("--seasons", type=int, nargs="*", help="default: 2012 through this season")
     np_.add_argument("--force", action="store_true", help="re-download completed seasons too")
@@ -115,7 +116,7 @@ def main(argv=None) -> None:
         return
     if args.cmd == "rankings":
         from .model.rankings import write
-        print(write(args.snapshot))
+        print(write(args.snapshot, args.week))
         return
     if args.cmd == "nflverse":
         import polars as pl

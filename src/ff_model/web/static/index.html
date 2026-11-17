@@ -221,9 +221,9 @@ function syncControls() {
   document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === S.tab));
   const allWeeks = S.tab === "season" || S.tab === "trades";  // these views cover every week
   const pool = S.tab === "rankings";  // every player in this week's pool, no league or team
-  $("#week").parentElement.style.display = allWeeks || pool ? "none" : "";
+  $("#week").parentElement.style.display = allWeeks ? "none" : "";
   $("#team").parentElement.style.display = pool ? "none" : "";
-  if (allWeeks || pool) { $("#snapwrap").style.display = "none"; $("#fresh").style.display = "none"; }
+  if (allWeeks) { $("#snapwrap").style.display = "none"; $("#fresh").style.display = "none"; }
 }
 $("#week").onchange = e => { S.week = +e.target.value; S.snapshot = null; resetOverrides(); syncControls(); route(); };
 $("#team").onchange = e => { S.team = +e.target.value; resetOverrides(); route(); };
@@ -925,10 +925,16 @@ function leagueTrades(rows, me) {
 }
 // The shareable rankings page, as it will look to others (no league details), in a frame sized to its content
 function renderRankings() {
-  setHeader(`Every player in this week's pool · league-free, the same page as the shareable link`);
+  const wk = S.weeks.find(x => x.week === S.week) || {};
+  setHeader(`Week ${S.week} · every player in the pool · ${wk.source === "replay" ? "replayed as of Sunday 11:45 ET"
+    : wk.final && !S.snapshot ? "as of Sunday 11:45 ET (other snapshots in the menu)" : "league-free, the same page as the shareable link"}`);
+  const q = new URLSearchParams(); if (S.week) q.set("week", S.week); if (S.snapshot) q.set("snapshot", S.snapshot);
+  // a finished week opens at its Sunday 11:45 snapshot (the decision time); the menu shows which
+  const dec = wk.final && !S.snapshot ? (wk.snapshots || []).find(x => (x.slot_key || "").endsWith("sun_1145")) : null;
+  if (dec) { $("#snap").value = dec.id; q.set("snapshot", dec.id); }
   $("#main").innerHTML = `
     <div class="loading" id="rk-load">Building rankings for every player…</div>
-    <iframe id="rk" src="/rankings" title="Player rankings" style="width:100%;border:0;display:block;min-height:400px;visibility:hidden"></iframe>`;
+    <iframe id="rk" src="/rankings?${q}" title="Player rankings" style="width:100%;border:0;display:block;min-height:400px;visibility:hidden"></iframe>`;
   const f = $("#rk");
   f.onload = () => {
     $("#rk-load").remove(); f.style.visibility = "";

@@ -76,10 +76,10 @@ class Handler(BaseHTTPRequestHandler):
             from ..model import report as R
             if path == "/rankings":  # the shareable rankings page, built from the newest (or chosen) snapshot
                 from ..model import rankings
-                key = ("rankings", q.get("snapshot"), self._latest())
+                key = ("rankings", q.get("week"), q.get("snapshot"), self._latest())
                 with _lock:
                     if key not in _cache:
-                        _cache[key] = rankings.render(rankings.build(q.get("snapshot")))
+                        _cache[key] = rankings.render(rankings.build(q.get("snapshot"), q.get("week")))
                 return self._send(200, _cache[key].encode(), "text/html; charset=utf-8")
             if path == "/api/weeks":
                 return self._json({"weeks": R.weeks_available(),
