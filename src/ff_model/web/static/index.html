@@ -428,6 +428,15 @@ function replayTable(r) {
     <p class="small muted" style="margin:6px 0 0">Highlighted rows: the lineups disagree about that player. ESPN = ESPN's projection; Model = the model's expected points, tinted blue when above ESPN and red when below; Final = actual.
       RB/WR/TE in the FLEX count the same as in their own slot. The model decided without knowing any results.</p></div>`;
 }
+// a P(win) difference split into points / range / correlation (they add up; each carries ~0.3 pt of simulation noise)
+const ppt = d => `${d >= 0 ? "+" : "−"}${Math.abs(100 * d).toFixed(1)}`;
+function whyParts(w) {
+  if (!w) return "";
+  const part = (lab, v, tip) => `<span title="${tip}">${lab} <b style="${Math.abs(v) >= 0.003 ? tint(100 * v, 3) : ""};padding:0 3px;border-radius:4px">${ppt(v)}</b></span>`;
+  return [part("points", w.points, `expected points ${sgn(w.exp_points)}`),
+          part("range", w.range, `spread of the swapped players' own outcomes (team SD ${sgn(w.sd)})`),
+          part("correlation", w.correlation, "how the swapped players move with your other starters and the opponent's (stacks, hedges)")].join(" · ");
+}
 function pp(d) { return `${d >= 0 ? "+" : "−"}${Math.abs(100 * d).toFixed(1)} percentage points`; }
 function heroCard(r, replay) {
   const w = r.swaps || {pairs: []}, o = r.outcome, changed = r.changes.start.length > 0;
@@ -439,6 +448,7 @@ function heroCard(r, replay) {
     ? `<div class="act ok">✓ ${replay ? "The model would have started the same lineup." : "Your current lineup is already the recommended one: no swaps."}</div>`
     : `<div class="act ${urgent ? "bad" : ""}"><b>${replay ? "The model would have:" : "Make these swaps:"}</b>
         <span class="secondary small">win chance ${pct(w.p_win_current, 1)} → ${pct(w.p_win_recommended, 1)} (${pp(w.p_win_recommended - w.p_win_current)})</span>
+        ${w.why ? `<div class="small secondary" style="margin-top:2px">Why, in percentage points: ${whyParts(w.why)}</div>` : ""}
         <table style="margin-top:4px">${w.pairs.map(x => `<tr class="${x.urgent ? "urgentrow" : ""}"><td style="width:22px">${x.urgent ? "⚠" : "⇄"}</td>
           <td>${x.out ? `Bench ${person(x.out)}` : ""}</td><td style="width:20px" class="secondary">→</td>
           <td>${x.in ? `Start ${person(x.in)}` : `<span class="muted">${esc(x.note || "leave empty")}</span>`}</td></tr>`).join("")}</table>
@@ -498,7 +508,9 @@ function renderMatchup(r) {
         <div class="legend"><span><svg width="12" height="12"><rect width="12" height="12" rx="3" fill="var(--win)"/></svg> win</span><span><svg width="12" height="12"><rect width="12" height="12" rx="3" fill="var(--loss)"/></svg> loss</span></div></div>
       <div class="card"><div class="secondary small" style="margin-bottom:6px">Runner-up lineups <span class="muted">(differences under ~1 point of win chance are within noise)</span></div><table>
         <tr><th class="num">P(win)</th><th>Change from recommended</th><th class="num">Exp. pts</th></tr>
-        ${r.alternatives.filter(a => a.in.length || a.out.length).map(a => `<tr><td class="num">${pct(a.pwin, 1)}</td><td class="small">${a.in.length ? `${a.in.map(esc).join(", ")} for ${a.out.map(esc).join(", ")}` : "–"}</td><td class="num">${pts(a.mean)}</td></tr>`).join("")}</table></div>
+        ${r.alternatives.filter(a => a.in.length || a.out.length).map(a => `<tr><td class="num">${pct(a.pwin, 1)}</td><td class="small">${a.in.length ? `${a.in.map(esc).join(", ")} for ${a.out.map(esc).join(", ")}` : "–"}
+          ${a.why ? `<div class="pmeta">${whyParts(a.why)}</div>` : ""}</td><td class="num">${pts(a.mean)}</td></tr>`).join("")}</table>
+        <p class="small muted" style="margin:6px 0 0">Each change in win chance, in percentage points, splits into <b>points</b> (the expected-points difference alone), <b>range</b> (how spread out the swapped players' own outcomes are) and <b>correlation</b> (how they move with your other starters and the opponent's: stacks and hedges). The parts add up; each carries about ±0.3 of simulation noise.</p></div>
     </div>
     <div class="grid2">${benchTable(me.bench, "me", r.me.name + " bench")}${benchTable(op.bench, "opp", r.opponent.name + " bench")}</div>
     <h2>How to read this</h2>

@@ -24,7 +24,7 @@ from ..research.line_injuries import starters_out
 from . import correlation as C
 from .live import TEAM_NAMES, build_inputs
 from .marginals import MODEL_PATH, TAUS, Marginals, anchor, curve_mean, espn_context_quantiles, features, neutralize
-from .optimize import BENCH, IR, SLOT, _opponent_starters, _reason, _slot_counts, decide
+from .optimize import BENCH, IR, SLOT, _opponent_starters, _reason, _slot_counts, decide, explain_swap
 
 SHOW_TAUS = (0.1, 0.25, 0.5, 0.75, 0.9)
 GROUPS = {
@@ -572,8 +572,9 @@ def build_report(week: int | None = None, team_id: int | None = None, snapshot_i
 
     def alt(k):
         names = {info.get(p, "(empty)") for _, p in dec.lineups[k]}
+        ids = {p for _, p in dec.lineups[k] if not isinstance(p, str)}
         return {"pwin": float(dec.pwin[k]), "in": sorted(names - best_names), "out": sorted(best_names - names),
-                "mean": float(dec.my_totals[:, k].mean())}
+                "mean": float(dec.my_totals[:, k].mean()), "why": explain_swap(dec, best_ids, ids)}
 
     espn_wp = None
     if sid:
@@ -625,6 +626,7 @@ def build_report(week: int | None = None, team_id: int | None = None, snapshot_i
                           "urgent": bool(po and rows_by_id[po]["unavailable"]), "group": g,
                           "note": "no available player at this position" if po and pi is None else None})
     swaps = {"pairs": pairs, "p_win_current": pwin_of(cur_ids), "p_win_recommended": float(dec.pwin[dec.best]),
+             "why": explain_swap(dec, cur_ids, best_ids) if pairs else None,
              "label": "your current lineup" if source == "live" else "the lineup that was started"}
 
     locked_rows = mine.filter(pl.col("locked") & ~pl.col("slot").is_in([BENCH, IR]))

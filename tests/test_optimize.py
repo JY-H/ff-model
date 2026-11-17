@@ -67,3 +67,20 @@ def test_opponent_plays_their_best_lineup_not_the_one_they_set():
     assert best[10] == S["QB"] and best[11] == S["RB"] and best[7] == S["FLEX"] and 12 not in best  # locked bench TE stays out
     as_set = dict(zip(*_opponent_starters(opp, COUNTS, as_set=True).select("player_id", "slot")))
     assert set(as_set) == {10, 2, 3, 4, 5, 6, 7, 8, 9} and as_set[10] == S["QB"]  # only the Out QB is replaced
+
+
+def test_swap_explanation_adds_up_and_finds_the_stack():
+    # favourite by ~10: swapping a lone WR for one who moves with my QB (same mean) widens my range,
+    # which hurts a favourite; the split should put that on correlation, not points
+    from ff_model.model.optimize import Decision, explain_swap
+    rng = np.random.default_rng(3)
+    n = 100_000
+    qb = 20 + 6 * rng.standard_normal(n)
+    lone = 12 + 5 * rng.standard_normal(n)
+    stacked = 12 + 5 * (0.8 * (qb - 20) / 6 + 0.6 * rng.standard_normal(n))
+    D = np.column_stack([qb, lone, stacked])
+    dec = Decision(lineups=[], pwin=np.array([]), best=0, max_proj=0, diff=None, my_totals=None,
+                   opp_total=np.full(n, 22.0), fixed_me=0.0, D=D, col={1: 0, 2: 1, 3: 2})
+    w = explain_swap(dec, {1, 2}, {1, 3})
+    assert abs(w["total"] - (w["points"] + w["range"] + w["correlation"])) < 1e-12
+    assert w["correlation"] < -0.01 and abs(w["points"]) < 0.005 and abs(w["range"]) < 0.005

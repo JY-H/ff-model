@@ -181,6 +181,37 @@ def decide(me: pl.DataFrame, opp_start: pl.DataFrame, q_of: dict[int, np.ndarray
     return Decision(lineups, pwin, best, mp, diff, my_totals, opp_total, fixed_me, D, col)
 
 
+def explain_swap(dec: Decision, base_ids, alt_ids, seed: int = 11) -> dict:
+    """Why P(win) differs between two lineups, split into parts that add up exactly.
+
+    On the same simulated weeks:
+      points       the expected-points difference alone (the base margin shifted by it)
+      range        the swapped players' own spread, with their draws decoupled from everyone else
+      correlation  the rest: how they move with your other starters and the opponent's (stacks, hedges)
+    Decoupling = a fixed random reordering of a player's draws, which keeps his own distribution.
+    """
+    rng = np.random.default_rng(seed)
+    n = dec.D.shape[0]
+    perm: dict = {}
+
+    def margin(ids, decouple=()):
+        m = np.full(n, dec.fixed_me)
+        for p in ids:
+            if p in dec.col:
+                x = dec.D[:, dec.col[p]]
+                m = m + (x[perm.setdefault(p, rng.permutation(n))] if p in decouple else x)
+        return m - dec.opp_total
+
+    def pw(m):
+        return float((m > 0).mean() + 0.5 * (m == 0).mean())
+    base, alt = set(base_ids), set(alt_ids)
+    c, a = margin(base), margin(alt)
+    ci, ai = margin(base, base - alt), margin(alt, alt - base)
+    gain = float(a.mean() - c.mean())
+    return {"total": pw(a) - pw(c), "points": pw(ci + gain) - pw(ci), "range": pw(ai) - pw(ci + gain),
+            "correlation": (pw(a) - pw(ai)) - (pw(c) - pw(ci)), "exp_points": gain, "sd": float(a.std() - c.std())}
+
+
 def score_lineups(D: np.ndarray, L: np.ndarray, fixed_me: float, opp_total: np.ndarray):
     """D: (draws, players) simulated points; L: (lineups, players) 0/1 starters.
     Returns my totals (draws, lineups), margin, and P(win) per lineup (ties count half)."""

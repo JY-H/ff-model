@@ -133,6 +133,7 @@ Saves the data that disappears if it isn't captured at the time. launchd runs `t
 - **Late swap:** players whose game has started are locked at their current points.
 - **Opponent:** their highest-projection lineup from players who can still play (anyone whose game has started stays put), since a lineup set early in the week usually changes by kickoff. The page tags players placed differently from their current lineup. Replays use the lineup they actually started.
 - **Tie-break:** when P(win) is tied within noise (e.g. near 0% or 100%), the lineup with the most expected points wins.
+- **Why a swap moves P(win)** (`explain_swap`): the swap card and each runner-up lineup split the change into points (the expected-points difference alone), range (the swapped players' own spread, their draws decoupled from everyone else) and correlation (the rest: stacks and hedges). The parts add up exactly; each carries about ±0.3 percentage points of simulation noise.
 - **The web page** (`web/`, `ff-archive web`) shows:
   - a recommendation card with swaps against the current lineup, and urgent flags for starters who can't score
   - a head-to-head with model-vs-ESPN tinting and Stack / Hedge / Double-risk tags (from the estimated correlations)
