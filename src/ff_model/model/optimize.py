@@ -61,7 +61,7 @@ def _rosters(con, sid: int, week: int):
     opp = m[1] if m[0] == MY_TEAM_ID else m[0]
     rows = con.execute("SELECT team_id, player_id, lineup_slot_id, actual_points FROM lineups WHERE league_id=?"
                        " AND snapshot_id=? AND scoring_period=? AND team_id IN (?, ?)", (LEAGUE_ID, sid, week, MY_TEAM_ID, opp)).fetchall()
-    df = pl.DataFrame([dict(team_id=r[0], player_id=r[1], slot=r[2], actual=r[3]) for r in rows])
+    df = pl.DataFrame([dict(team_id=r[0], player_id=r[1], slot=r[2], actual=r[3]) for r in rows], infer_schema_length=None)
     return opp, df
 
 

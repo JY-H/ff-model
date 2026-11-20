@@ -124,7 +124,7 @@ def _inputs(week: int | None, snapshot_id: int | None):
         # a finished week also carries each player's final points (from the Tuesday finals)
         fin = dict(zip(*_final_rosters(con, week).select("player_id", "actual"))) if week in _final_weeks(con) else {}
         ros = pl.DataFrame([dict(team_id=r[0], player_id=r[1], slot=r[2], actual=r[3], final=fin.get(r[1]),
-                                 opp_team_id=opp.get(r[0])) for r in rows])
+                                 opp_team_id=opp.get(r[0])) for r in rows], infer_schema_length=None)
         stat = {r[0]: json.loads(r[1] or "{}") for r in con.execute(
             "SELECT player_id, proj_stats_json FROM player_snapshots WHERE league_id=? AND snapshot_id=?", (LEAGUE_ID, sid))}
         return "live", sid, week, taken, C.assign_roles(pool), ros, stat
@@ -314,7 +314,7 @@ def _line_who(source: str, sid: int | None, week: int) -> dict:
     if source == "live":
         isid = con.execute("SELECT MAX(snapshot_id) FROM injury_reports WHERE snapshot_id <= ?", (sid,)).fetchone()[0]
         rep = pl.DataFrame([dict(r) for r in con.execute(
-            "SELECT season, week, gsis_id, report_status FROM injury_reports WHERE snapshot_id=?", (isid,))]) if isid else None
+            "SELECT season, week, gsis_id, report_status FROM injury_reports WHERE snapshot_id=?", (isid,))], infer_schema_length=None) if isid else None
         so = starters_out([SEASON], extra_injuries=rep.with_columns(pl.col("season").cast(pl.Int64), pl.col("week").cast(pl.Int64))
                           if rep is not None and rep.height else None, asof_week=week)
     else:
@@ -334,7 +334,7 @@ def _vacated_who(source: str, sid: int | None, week: int) -> dict:
     if source == "live":
         isid = con.execute("SELECT MAX(snapshot_id) FROM injury_reports WHERE snapshot_id <= ?", (sid,)).fetchone()[0]
         rep = pl.DataFrame([dict(r) for r in con.execute(
-            "SELECT season, week, gsis_id, report_status FROM injury_reports WHERE snapshot_id=?", (isid,))]) if isid else None
+            "SELECT season, week, gsis_id, report_status FROM injury_reports WHERE snapshot_id=?", (isid,))], infer_schema_length=None) if isid else None
         v = vacated([SEASON], extra_injuries=rep.with_columns(pl.col("season").cast(pl.Int64), pl.col("week").cast(pl.Int64))
                     if rep is not None and rep.height else None, asof_week=week)
     else:

@@ -47,7 +47,8 @@ LINE = {"3": "p_pass_yds", "4": "p_pass_td", "20": "p_int", "24": "p_rush_yds", 
 def _q(con, sql, args=()) -> pl.DataFrame:
     rows = con.execute(sql, args).fetchall()
     cols = [d[0] for d in con.execute(sql, args).description] if rows else []
-    return pl.DataFrame([dict(zip(cols, r)) for r in rows]) if rows else pl.DataFrame()
+    # infer types from every row: a column can be empty for the first hundred (e.g. injury on a fresh report)
+    return pl.DataFrame([dict(zip(cols, r)) for r in rows], infer_schema_length=None) if rows else pl.DataFrame()
 
 
 def _latest_with(con, table: str, sid: int, week: int) -> int | None:

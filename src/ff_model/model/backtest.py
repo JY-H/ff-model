@@ -67,7 +67,7 @@ def _final_rosters(con, week: int) -> pl.DataFrame:
     for h, a in mus:
         opp[h], opp[a] = a, h
     return pl.DataFrame([dict(team_id=r[0], player_id=r[1], slot=r[2], actual=r[3] or 0.0, opp_team_id=opp.get(r[0]))
-                         for r in rows])
+                         for r in rows], infer_schema_length=None)
 
 
 def run(weeks=range(1, 10), n: int = 10000) -> pl.DataFrame:

@@ -96,3 +96,14 @@ def test_context_columns_keep_their_types_when_empty():
     df = build_inputs()
     assert {c: df.schema[c] for c in CONTEXT_TYPES} == CONTEXT_TYPES
     neutralize(df)
+
+
+def test_query_column_empty_for_the_first_hundred_rows():
+    # a fresh injury report: no injury listed for the first 150 players, then a hamstring
+    import sqlite3
+    from ff_model.model.live import _q
+    con = sqlite3.connect(":memory:")
+    con.execute("CREATE TABLE t (id INTEGER, injury TEXT)")
+    con.executemany("INSERT INTO t VALUES (?, ?)", [(i, None) for i in range(150)] + [(150, "Hamstring")])
+    df = _q(con, "SELECT id, injury FROM t ORDER BY id")
+    assert df.schema["injury"] == pl.String and df["injury"][150] == "Hamstring"
